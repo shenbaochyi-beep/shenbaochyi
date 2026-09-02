@@ -1,0 +1,6 @@
+{
+  "name": "導師家庭訪問即時記錄系統",
+  "description": "專為學校學務處與導師設計之家庭訪問即時語音收音轉譯、AI重點摘要整理與公文規格紀錄表下載系統",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
