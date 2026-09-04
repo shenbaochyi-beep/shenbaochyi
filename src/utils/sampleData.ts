@@ -1,40 +1,57 @@
 import { VisitRecord, VisitInfo, TranscriptItem, VisitSummary } from '../types';
 
-export const CLASS_OPTIONS = [
-  '一年忠班',
-  '一年教班',
-  '一年仁班',
-  '一年愛班',
-  '高二商業',
-  '高二資訊',
-  '高二餐飲',
-  '高二觀光',
-  '高二水產',
-  '高二商資',
-  '高二觀餐',
-  '高三商業',
-  '高三資訊',
-  '高三餐飲',
-  '高三觀光',
-  '高三水產',
-  '高三商資',
-  '高三觀餐',
-];
+export interface TeacherClassPair {
+  teacher: string;
+  class: string;
+}
 
-export const TEACHER_OPTIONS = [
-  '王偉仁 老師',
-  '卓銘欣 老師',
-  '巫佳容 老師',
-  '周芳琪 老師',
-  '黃永耀 老師',
-  '許書齊 老師',
-  '林政銘 老師',
-  '熊代勛 老師',
-  '陳中明 老師',
-  '陳芷琳 老師',
-  '杜斯古莎尤慕 老師',
-  '趙川俊 老師',
-];
+export const TEACHER_CLASS_PAIRS: readonly TeacherClassPair[] = [
+  { teacher: '王偉仁 老師', class: '一年忠班' },
+  { teacher: '卓銘欣 老師', class: '一年孝班' },
+  { teacher: '巫佳容 老師', class: '一年仁班' },
+  { teacher: '杜斯古莎尤慕 老師', class: '一年愛班' },
+  { teacher: '黃永耀 老師', class: '高二商資' },
+  { teacher: '熊代勛 老師', class: '高二水產' },
+  { teacher: '陳芷琳 老師', class: '高二觀光' },
+  { teacher: '林政銘 老師', class: '高二餐飲' },
+  { teacher: '胡方奕 老師', class: '高二資訊' },
+  { teacher: '許書齊 老師', class: '高三餐飲' },
+  { teacher: '周芳琪 老師', class: '高三觀光' },
+  { teacher: '趙川俊 老師', class: '高三水產' },
+  { teacher: '陳中明 老師', class: '高三商資' },
+] as const;
+
+export const CLASS_OPTIONS: string[] = TEACHER_CLASS_PAIRS.map((p) => p.class);
+
+export const TEACHER_OPTIONS: string[] = TEACHER_CLASS_PAIRS.map((p) => p.teacher);
+
+export const CLASS_TO_TEACHER_MAP: Record<string, string> = Object.fromEntries(
+  TEACHER_CLASS_PAIRS.map((p) => [p.class, p.teacher])
+);
+
+// Map teacher -> class, supporting both '王偉仁 老師' and '王偉仁老師'
+export const TEACHER_TO_CLASS_MAP: Record<string, string> = {
+  ...Object.fromEntries(TEACHER_CLASS_PAIRS.map((p) => [p.teacher, p.class])),
+  ...Object.fromEntries(TEACHER_CLASS_PAIRS.map((p) => [p.teacher.replace(/\s+/g, ''), p.class])),
+  ...Object.fromEntries(TEACHER_CLASS_PAIRS.map((p) => [p.teacher.replace(' 老師', ''), p.class])),
+  ...Object.fromEntries(TEACHER_CLASS_PAIRS.map((p) => [p.teacher.replace(' 老師', '').trim(), p.class])),
+};
+
+export const getMatchedTeacherForClass = (className: string): string | undefined => {
+  if (!className) return undefined;
+  return CLASS_TO_TEACHER_MAP[className.trim()];
+};
+
+export const getMatchedClassForTeacher = (teacherName: string): string | undefined => {
+  if (!teacherName) return undefined;
+  const clean = teacherName.trim();
+  return (
+    TEACHER_TO_CLASS_MAP[clean] ||
+    TEACHER_TO_CLASS_MAP[clean.replace(/\s+/g, '')] ||
+    TEACHER_TO_CLASS_MAP[`${clean} 老師`] ||
+    TEACHER_TO_CLASS_MAP[`${clean}老師`]
+  );
+};
 
 export const DEFAULT_VISIT_INFO: VisitInfo = {
   schoolName: '國立成功商業水產職業學校',
@@ -48,6 +65,9 @@ export const DEFAULT_VISIT_INFO: VisitInfo = {
   accompanyStaff: '張輔導組長',
   visitDate: new Date().toISOString().split('T')[0],
   visitTime: '14:30 ~ 15:45',
+  visitStartTime: '14:30',
+  visitEndTime: '15:45',
+  visitDurationMinutes: 75,
   visitType: '實體到府訪視',
   visitLocation: '學生自宅 (臺東縣成功鎮大同路)',
   attendees: '父親、母親、學生本人',
@@ -219,7 +239,7 @@ export const SAMPLE_RECORDS: VisitRecord[] = [
       schoolName: '國立成功商業水產職業學校',
       academicYear: '114學年度',
       semester: '第1學期',
-      className: '高二水產',
+      className: '一年孝班',
       studentName: '張雅涵',
       studentId: '114008',
       studentGender: '女',
@@ -227,6 +247,9 @@ export const SAMPLE_RECORDS: VisitRecord[] = [
       accompanyStaff: '認輔教師 李老師',
       visitDate: '2026-08-18',
       visitTime: '18:00 ~ 19:15',
+      visitStartTime: '18:00',
+      visitEndTime: '19:15',
+      visitDurationMinutes: 75,
       visitType: '實體到府訪視',
       visitLocation: '學生自宅',
       attendees: '祖母、學生本人',

@@ -146,7 +146,7 @@ function createMetadataTable(info: VisitInfo): Table {
       new TableRow({
         children: [
           createCell('訪視日期時間', true, 18),
-          createCell(`${info.visitDate} ${info.visitTime}`, false, 32),
+          createCell(`${info.visitDate} ${info.visitTime || (info.visitStartTime ? `${info.visitStartTime} ~ ${info.visitEndTime}` : '')}${info.visitDurationMinutes ? ` (共${info.visitDurationMinutes}分鐘)` : ''}`, false, 32),
           createCell('訪視形式', true, 18),
           createCell(info.visitType, false, 32),
         ],

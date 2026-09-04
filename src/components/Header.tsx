@@ -8,16 +8,24 @@ import {
   School,
   Download,
   BookOpen,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Lock,
+  ShieldCheck,
+  User,
+  Shield
 } from 'lucide-react';
-import { VisitRecord } from '../types';
+import { VisitRecord, CurrentUser } from '../types';
 import { SchoolLogo } from './SchoolLogo';
+import { TEACHER_OPTIONS } from '../utils/sampleData';
 
 interface HeaderProps {
   currentTab: 'record' | 'summary' | 'preview' | 'archive';
   setCurrentTab: (tab: 'record' | 'summary' | 'preview' | 'archive') => void;
   activeRecord: VisitRecord;
   customLogoUrl?: string | null;
+  currentUser: CurrentUser;
+  onSwitchTeacher: (name: string) => void;
+  onDeanLogout: () => void;
   onNewVisit: () => void;
   onLoadDemo: () => void;
   onOpenSetup: () => void;
@@ -28,10 +36,18 @@ export const Header: React.FC<HeaderProps> = ({
   setCurrentTab,
   activeRecord,
   customLogoUrl,
+  currentUser,
+  onSwitchTeacher,
+  onDeanLogout,
   onNewVisit,
   onLoadDemo,
   onOpenSetup,
 }) => {
+  const visitingTeacher = activeRecord.visitInfo.teacherName || '王偉仁 老師';
+  const isVisitingTeacher =
+    currentUser.role === 'teacher' &&
+    currentUser.name.trim().replace(/\s+/g, '') === visitingTeacher.trim().replace(/\s+/g, '');
+  const canDownload = isVisitingTeacher || (currentUser.role === 'dean' && currentUser.isDeanAuthenticated);
   return (
     <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -65,7 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Current Student Quick Pill */}
           <div 
             onClick={onOpenSetup}
-            className="hidden md:flex items-center space-x-2 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-full px-3 py-1.5 cursor-pointer transition-colors"
+            className="hidden xl:flex items-center space-x-2 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-full px-3 py-1.5 cursor-pointer transition-colors"
             title="點擊修改訪視基本資料"
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -76,21 +92,63 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-xs text-blue-400 underline pl-1">修改設定</span>
           </div>
 
+          {/* User Identity & Security Role Switcher */}
+          <div className="flex items-center space-x-2">
+            {currentUser.isDeanAuthenticated ? (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-950 to-indigo-950 border border-purple-500/60 text-xs shadow-xs">
+                <ShieldCheck className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <div className="flex flex-col sm:flex-row sm:items-center sm:gap-1.5 text-left">
+                  <span className="font-bold text-white text-xs">學務主任 胡方奕</span>
+                  <span className="text-[10px] px-1 py-0.2 rounded bg-purple-900/90 text-purple-200 font-mono">
+                    slvssa300300
+                  </span>
+                </div>
+                <button
+                  onClick={onDeanLogout}
+                  className="ml-1 text-[11px] px-1.5 py-0.5 rounded bg-rose-900/60 hover:bg-rose-800 text-rose-200 transition-colors"
+                  title="登出學務主任並切換回一般導師身分"
+                >
+                  登出
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs transition-colors">
+                <User className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                <span className="text-slate-400 text-[11px] hidden md:inline">登入導師:</span>
+                <select
+                  value={currentUser.name}
+                  onChange={(e) => onSwitchTeacher(e.target.value)}
+                  className="bg-transparent text-slate-200 font-semibold text-xs focus:outline-none cursor-pointer border-none"
+                  title="切換導師身分以驗證資安管制"
+                >
+                  <option value={visitingTeacher} className="bg-slate-900 text-amber-300 font-bold">
+                    ⭐ {visitingTeacher} (本次家訪導師 - 可預覽與下載)
+                  </option>
+                  {TEACHER_OPTIONS.filter((t) => t.trim() !== visitingTeacher.trim()).map((teacher) => (
+                    <option key={teacher} value={teacher} className="bg-slate-900 text-slate-200">
+                      {teacher} (其他導師 - 禁預覽與下載)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
           {/* Quick Actions */}
           <div className="flex items-center space-x-2">
             <button
               id="btn-load-demo"
               onClick={onLoadDemo}
-              className="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors flex items-center gap-1.5"
+              className="text-xs px-2.5 sm:px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors flex items-center gap-1.5"
               title="載入示範完整訪視對話紀錄"
             >
               <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">載入示範紀錄</span>
+              <span className="hidden sm:inline">示範紀錄</span>
             </button>
             <button
               id="btn-new-visit"
               onClick={onNewVisit}
-              className="text-xs px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-sm transition-colors flex items-center gap-1.5"
+              className="text-xs px-2.5 sm:px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-sm transition-colors flex items-center gap-1.5"
             >
               <PlusCircle className="w-3.5 h-3.5" />
               <span>新建家訪</span>
@@ -145,6 +203,16 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <FileText className="w-4 h-4 text-emerald-400" />
             <span>3. 官方公文預覽與下載</span>
+            {canDownload ? (
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-900/80 text-emerald-300 border border-emerald-700/50">
+                可預覽下載
+              </span>
+            ) : (
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-950/90 text-rose-300 border border-rose-800/50 flex items-center gap-0.5">
+                <Lock className="w-2.5 h-2.5" />
+                限本次導師
+              </span>
+            )}
           </button>
 
           <button
@@ -157,7 +225,18 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <History className="w-4 h-4 text-purple-400" />
-            <span>歷史訪視紀錄庫</span>
+            <span>4. 歷史訪視紀錄庫</span>
+            {currentUser.isDeanAuthenticated ? (
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-900/90 text-purple-200 border border-purple-700/50 flex items-center gap-0.5">
+                <ShieldCheck className="w-2.5 h-2.5 text-amber-300" />
+                主任已授權
+              </span>
+            ) : (
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-950/90 text-rose-300 border border-rose-800/50 flex items-center gap-0.5">
+                <Lock className="w-2.5 h-2.5" />
+                限學務主任
+              </span>
+            )}
           </button>
         </div>
       </div>

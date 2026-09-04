@@ -13,18 +13,26 @@ export const SchoolLogo: React.FC<SchoolLogoProps> = ({
   size = 40,
   showText = false,
 }) => {
-  if (customLogoUrl) {
+  const [imgError, setImgError] = React.useState(false);
+  const effectiveSrc = customLogoUrl || '/school_logo.png';
+
+  React.useEffect(() => {
+    setImgError(false);
+  }, [effectiveSrc]);
+
+  if (!imgError && effectiveSrc) {
     return (
       <img
-        src={customLogoUrl}
+        src={effectiveSrc}
         alt="國立成功商業水產職業學校校徽"
         className={`${className} object-contain rounded-full bg-white shadow-xs border border-slate-200`}
+        onError={() => setImgError(true)}
         referrerPolicy="no-referrer"
       />
     );
   }
 
-  // Official CKVS National Chenggong Commercial & Fishery Vocational High School Emblem (Vector SVG)
+  // Fallback: Official CKVS National Chenggong Commercial & Fishery Vocational High School Emblem (Vector SVG)
   return (
     <svg
       viewBox="0 0 160 160"

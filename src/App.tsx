@@ -5,13 +5,17 @@ import { SummaryEditor } from './components/SummaryEditor';
 import { DocumentPreview } from './components/DocumentPreview';
 import { ArchiveView } from './components/ArchiveView';
 import { VisitSetupModal } from './components/VisitSetupModal';
-import { VisitRecord, VisitInfo, VisitSummary, TranscriptItem } from './types';
+import { VisitRecord, VisitInfo, VisitSummary, TranscriptItem, CurrentUser } from './types';
 import { DEFAULT_VISIT_INFO, SAMPLE_RECORDS, SAMPLE_SUMMARY_1, SAMPLE_TRANSCRIPTS_1 } from './utils/sampleData';
+import { getInitialCurrentUser, saveCurrentUser, DEAN_CREDENTIALS, DEAN_USER, DEFAULT_TEACHER_USER } from './utils/auth';
 
 const STORAGE_KEY = 'school_home_visit_records_v4';
 const LOGO_STORAGE_KEY = 'school_custom_logo_v1';
 
 export default function App() {
+  // Current logged in user (teacher or Dean)
+  const [currentUser, setCurrentUser] = useState<CurrentUser>(() => getInitialCurrentUser());
+
   // Custom Logo URL state
   const [customLogoUrl, setCustomLogoUrl] = useState<string | null>(() => {
     try {
@@ -42,16 +46,20 @@ export default function App() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed.map((item: VisitRecord) => {
-            if (item?.visitInfo?.teacherName?.includes('林書敏')) {
-              return {
-                ...item,
-                visitInfo: {
+            const updatedInfo = item.visitInfo
+              ? {
                   ...item.visitInfo,
-                  teacherName: '王偉仁 老師',
-                },
-              };
-            }
-            return item;
+                  schoolName: '國立成功商業水產職業學校',
+                  className: item.visitInfo.className === '一年教班' ? '一年孝班' : item.visitInfo.className,
+                  teacherName: item.visitInfo.teacherName?.includes('林書敏')
+                    ? '王偉仁 老師'
+                    : item.visitInfo.teacherName,
+                }
+              : item.visitInfo;
+            return {
+              ...item,
+              visitInfo: updatedInfo,
+            };
           });
         }
       }
@@ -93,9 +101,52 @@ export default function App() {
     }
   }, [records]);
 
+  // Sync currentUser to localStorage
+  useEffect(() => {
+    saveCurrentUser(currentUser);
+  }, [currentUser]);
+
   const showToast = (text: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleSwitchTeacher = (teacherName: string) => {
+    const updated: CurrentUser = {
+      role: 'teacher',
+      name: teacherName,
+      title: '訪視導師',
+      isDeanAuthenticated: false,
+    };
+    setCurrentUser(updated);
+    showToast(`已切換目前登入身分為導師：${teacherName}`, 'info');
+  };
+
+  const handleDeanLogin = (account: string): boolean => {
+    const clean = account.trim().toLowerCase();
+    if (clean === DEAN_CREDENTIALS.account.toLowerCase()) {
+      setCurrentUser(DEAN_USER);
+      showToast(`🎉 歡迎學務主任 ${DEAN_CREDENTIALS.name}！已完成安全驗證，開啟歷年家庭訪問資料庫。`, 'success');
+      return true;
+    }
+    return false;
+  };
+
+  const handleDeanLogout = () => {
+    const fallbackTeacher = activeRecord.visitInfo.teacherName || DEFAULT_TEACHER_USER.name;
+    const updated: CurrentUser = {
+      role: 'teacher',
+      name: fallbackTeacher,
+      title: '訪視導師',
+      isDeanAuthenticated: false,
+    };
+    setCurrentUser(updated);
+    showToast('已安全登出學務主任帳號，恢復為導師身分。', 'info');
+  };
+
+  const handleSwitchToVisitingTeacher = () => {
+    const visitingTeacher = activeRecord.visitInfo.teacherName || '王偉仁 老師';
+    handleSwitchTeacher(visitingTeacher);
   };
 
   const updateActiveRecord = (updates: Partial<VisitRecord>) => {
@@ -255,6 +306,9 @@ export default function App() {
         setCurrentTab={setCurrentTab}
         activeRecord={activeRecord}
         customLogoUrl={customLogoUrl}
+        currentUser={currentUser}
+        onSwitchTeacher={handleSwitchTeacher}
+        onDeanLogout={handleDeanLogout}
         onNewVisit={handleNewVisit}
         onLoadDemo={handleLoadDemo}
         onOpenSetup={() => setIsSetupModalOpen(true)}
@@ -285,7 +339,10 @@ export default function App() {
           <DocumentPreview
             activeRecord={activeRecord}
             customLogoUrl={customLogoUrl}
+            currentUser={currentUser}
+            onSwitchToVisitingTeacher={handleSwitchToVisitingTeacher}
             onBackToEdit={() => setCurrentTab('summary')}
+            onReturnToRecord={() => setCurrentTab('record')}
           />
         )}
 
@@ -295,6 +352,11 @@ export default function App() {
             onSelectRecord={handleSelectRecord}
             onDeleteRecord={handleDeleteRecord}
             onNewVisit={handleNewVisit}
+            currentUser={currentUser}
+            onDeanLogin={handleDeanLogin}
+            onDeanLogout={handleDeanLogout}
+            onReturnToRecord={() => setCurrentTab('record')}
+            customLogoUrl={customLogoUrl}
           />
         )}
       </main>
@@ -307,6 +369,8 @@ export default function App() {
         onSave={handleSaveVisitInfo}
         customLogoUrl={customLogoUrl}
         onUpdateCustomLogo={handleUpdateCustomLogo}
+        currentUser={currentUser}
+        onDeanLogin={handleDeanLogin}
       />
 
       {/* Toast Notification */}

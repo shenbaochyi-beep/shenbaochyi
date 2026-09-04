@@ -8,9 +8,14 @@ import {
   FileText,
   Share2,
   Sparkles,
-  ArrowLeft
+  ArrowLeft,
+  Lock,
+  ShieldAlert,
+  ShieldCheck,
+  UserCheck,
+  AlertTriangle
 } from 'lucide-react';
-import { VisitRecord } from '../types';
+import { VisitRecord, CurrentUser } from '../types';
 import { exportVisitRecordToDocx } from '../services/docxExportService';
 import { SchoolLogo } from './SchoolLogo';
 
@@ -18,18 +23,127 @@ interface DocumentPreviewProps {
   activeRecord: VisitRecord;
   customLogoUrl?: string | null;
   onBackToEdit: () => void;
+  currentUser: CurrentUser;
+  onSwitchToVisitingTeacher?: () => void;
+  onReturnToRecord?: () => void;
 }
 
 export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   activeRecord,
   customLogoUrl,
   onBackToEdit,
+  currentUser,
+  onSwitchToVisitingTeacher,
+  onReturnToRecord,
 }) => {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
-  const [copiedMd, setCopiedMd] = useState(false);
+  const [permissionDeniedToast, setPermissionDeniedToast] = useState(false);
 
   const { visitInfo, summary, transcripts } = activeRecord;
+  const visitingTeacher = visitInfo.teacherName || '王偉仁 老師';
+
+  // Authorization check: Only this visit's teacher can preview/download, or academic dean (Hu Fang-Yi)
+  const isVisitingTeacher =
+    currentUser.role === 'teacher' &&
+    currentUser.name.trim().replace(/\s+/g, '') === visitingTeacher.trim().replace(/\s+/g, '');
+  const isDean = currentUser.role === 'dean' && Boolean(currentUser.isDeanAuthenticated);
+  const canDownload = isVisitingTeacher || isDean;
+
+  const triggerPermissionWarning = () => {
+    setPermissionDeniedToast(true);
+    setTimeout(() => setPermissionDeniedToast(false), 3500);
+  };
+
+  // If user is neither this visit's teacher nor academic dean, block both preview and download completely
+  if (!canDownload) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+          {/* Top banner */}
+          <div className="bg-gradient-to-r from-slate-900 via-rose-950 to-slate-900 text-white p-6 sm:p-8 text-center relative">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-800/90 border-2 border-rose-400/80 shadow-lg mb-4 p-1">
+              <SchoolLogo customLogoUrl={customLogoUrl} size={56} className="w-14 h-14 rounded-full" />
+            </div>
+            <div className="inline-block px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-400/40 text-xs font-semibold mb-2">
+              國立成功商業水產職業學校 · 校園資安與個資隱私防護
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-wide">
+              官方公文預覽與下載權限管制
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-lg mx-auto">
+              依校園學生個人資料保護規範，家庭訪問公文表涉及學生家庭處遇與身心輔導紀錄
+            </p>
+          </div>
+
+          <div className="p-6 sm:p-8 space-y-6">
+            {/* Security Notice Box */}
+            <div className="bg-rose-50 border border-rose-300 rounded-xl p-5 text-rose-950 flex items-start gap-4">
+              <ShieldAlert className="w-7 h-7 text-rose-600 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1.5 text-xs sm:text-sm">
+                <p className="font-bold text-rose-900 text-base">
+                  【資安嚴格管制：僅供本次家訪導師預覽與下載】
+                </p>
+                <p className="text-rose-800 leading-relaxed">
+                  本份官方公文紀錄之訪視導師為【<strong className="text-rose-950 font-bold">{visitingTeacher}</strong>】（訪視學生：{visitInfo.studentName}，班級：{visitInfo.className}）。
+                </p>
+                <p className="text-rose-800 leading-relaxed font-semibold">
+                  依學校資安及個資保護規範：其他導師均<span className="text-rose-600 font-bold underline decoration-2 underline-offset-2">禁止預覽公文內容</span>，且<span className="text-rose-600 font-bold underline decoration-2 underline-offset-2">禁止下載 Word / PDF 檔案或複製內容</span>。
+                </p>
+                <div className="mt-3 pt-3 border-t border-rose-200/80 flex flex-wrap items-center gap-2 text-xs text-rose-900">
+                  <span>您目前登入身分：</span>
+                  <span className="px-2.5 py-0.5 rounded bg-rose-200 text-rose-950 font-bold">
+                    {currentUser.name}
+                  </span>
+                  <span className="text-rose-600 font-semibold">(非本次家訪導師，權限已被封鎖)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Switch / Back actions */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4">
+              <div className="text-xs font-semibold text-slate-700">
+                若您為本次家訪導師，請點選下方按鈕切換身分以解除管制：
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-3">
+                {onSwitchToVisitingTeacher && (
+                  <button
+                    onClick={onSwitchToVisitingTeacher}
+                    className="w-full sm:flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2"
+                  >
+                    <UserCheck className="w-4 h-4" />
+                    <span>切換為本次家訪導師【{visitingTeacher}】</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={onBackToEdit}
+                  className="w-full sm:w-auto py-2.5 px-4 border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>返回 AI 重點摘要</span>
+                </button>
+
+                {onReturnToRecord && (
+                  <button
+                    onClick={onReturnToRecord}
+                    className="w-full sm:w-auto py-2.5 px-4 border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <span>返回即時紀錄</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="text-center text-xs text-slate-400">
+              提示：亦可於右上角直接切換登入導師；學務主任胡方奕（帳號 slvssa300300）具備督導權限。
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Word (.docx) Export
   const handleDownloadDocx = async () => {
@@ -54,7 +168,7 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
 學年度/學期：${visitInfo.academicYear} ${visitInfo.semester}
 學生姓名：${visitInfo.studentName} (${visitInfo.className} / 座號: ${visitInfo.studentId || '—'})
 訪視導師：${visitInfo.teacherName}
-訪視時間：${visitInfo.visitDate} ${visitInfo.visitTime}
+訪視時間：${visitInfo.visitDate} ${visitInfo.visitTime || (visitInfo.visitStartTime ? `${visitInfo.visitStartTime} ~ ${visitInfo.visitEndTime}` : '')}${visitInfo.visitDurationMinutes ? ` (約${visitInfo.visitDurationMinutes}分鐘)` : ''}
 訪視形式：${visitInfo.visitType} (地點: ${visitInfo.visitLocation})
 受訪人員：${visitInfo.attendees}
 訪談主旨：${visitInfo.visitPurpose}
@@ -107,6 +221,75 @@ ${(summary?.crossOfficeReferrals || []).join('、 ') || '無'}
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      {/* Security Permission Alert Banner */}
+      {!canDownload ? (
+        <div className="print:hidden bg-amber-50 border border-amber-300 rounded-xl p-4 text-amber-900 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2 bg-amber-100 rounded-lg text-amber-700 flex-shrink-0 mt-0.5 sm:mt-0">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm text-amber-950">
+                  資安權限管制：本公文僅供本次家訪導師下載
+                </span>
+                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-200/80 text-amber-800">
+                  其他導師僅限線上閱覽
+                </span>
+              </div>
+              <p className="text-xs text-amber-800/90 mt-0.5">
+                此份紀錄之訪視導師為【<strong className="text-amber-950">{visitingTeacher}</strong>】。您目前身分為【<strong className="text-amber-950">{currentUser.name}</strong>】（非本次訪視導師），依校園資安個資管理規定，無法下載 Word (.docx)、PDF 檔案或複製校務文字。
+              </p>
+            </div>
+          </div>
+
+          {onSwitchToVisitingTeacher && (
+            <button
+              onClick={onSwitchToVisitingTeacher}
+              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors flex items-center gap-1.5 flex-shrink-0 self-end sm:self-auto"
+              title={`點擊切換身分為本次訪視導師 ${visitingTeacher}`}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>切換為本次導師【{visitingTeacher}】</span>
+            </button>
+          )}
+        </div>
+      ) : isDean ? (
+        <div className="print:hidden bg-purple-50 border border-purple-200 rounded-xl px-4 py-2.5 text-purple-900 shadow-2xs flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs">
+            <ShieldCheck className="w-4 h-4 text-purple-600 flex-shrink-0" />
+            <span>
+              <strong>學務主任 胡方奕</strong> (slvssa300300) — 最高行政督導查核權限，已開放公文查閱與檔案下載。
+            </span>
+          </div>
+          <span className="text-[10px] px-2 py-0.5 rounded bg-purple-200 text-purple-800 font-semibold flex-shrink-0">
+            主管下載核可
+          </span>
+        </div>
+      ) : (
+        <div className="print:hidden bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-emerald-900 shadow-2xs flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>
+              身分驗證核可：您為本次家訪導師【<strong>{visitingTeacher}</strong>】，已授權正式公文 Word 檔下載、PDF 列印與校務文字匯出權限。
+            </span>
+          </div>
+          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-200 text-emerald-800 font-semibold flex-shrink-0">
+            導師授權有效
+          </span>
+        </div>
+      )}
+
+      {/* Permission Denied Toast */}
+      {permissionDeniedToast && (
+        <div className="fixed top-20 right-6 z-50 animate-bounce">
+          <div className="bg-rose-800 text-white px-4 py-2.5 rounded-lg shadow-xl text-xs font-semibold flex items-center gap-2 border border-rose-600">
+            <Lock className="w-4 h-4 text-rose-200" />
+            <span>資安限制：非本次家訪導師（{visitingTeacher}），無法執行下載或複製！</span>
+          </div>
+        </div>
+      )}
+
       {/* Top Controls Bar (Hidden during window.print) */}
       <div className="print:hidden bg-white rounded-xl shadow-xs border border-slate-200 p-4 sm:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center space-x-3">
@@ -118,8 +301,14 @@ ${(summary?.crossOfficeReferrals || []).join('、 ') || '無'}
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h2 className="text-lg font-bold text-slate-900">
-              家庭訪問紀錄表 — 公文預覽與文件下載
+            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <span>家庭訪問紀錄表 — 公文預覽與文件下載</span>
+              {!canDownload && (
+                <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-normal border border-amber-200 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-700" />
+                  下載已鎖定 (僅限本訪視導師)
+                </span>
+              )}
             </h2>
             <p className="text-xs text-slate-500">
               支援下載標準 Word (.docx) 檔、列印儲存 PDF 及一鍵複製校務文字
@@ -129,12 +318,18 @@ ${(summary?.crossOfficeReferrals || []).join('、 ') || '無'}
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Copy Plain Text */}
           <button
             id="btn-copy-text"
-            onClick={handleCopyText}
-            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-300 transition-colors flex items-center gap-1.5"
-            title="複製純文字內容以供貼入校務行政系統"
+            onClick={canDownload ? handleCopyText : triggerPermissionWarning}
+            className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${
+              canDownload
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+            }`}
+            title={canDownload ? '複製純文字內容以供貼入校務行政系統' : `資安管制：僅限本次家訪導師（${visitingTeacher}）可複製公文`}
           >
+            {!canDownload && <Lock className="w-3.5 h-3.5 text-slate-400" />}
             {copiedText ? (
               <>
                 <Check className="w-3.5 h-3.5 text-emerald-600" />
@@ -142,39 +337,62 @@ ${(summary?.crossOfficeReferrals || []).join('、 ') || '無'}
               </>
             ) : (
               <>
-                <Copy className="w-3.5 h-3.5" />
+                {canDownload && <Copy className="w-3.5 h-3.5" />}
                 <span>複製校務文字</span>
               </>
             )}
           </button>
 
+          {/* Download TXT */}
           <button
             id="btn-download-txt"
-            onClick={handleDownloadTranscriptTxt}
-            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-300 transition-colors flex items-center gap-1.5"
-            title="下載完整對話逐字稿純文字檔"
+            onClick={canDownload ? handleDownloadTranscriptTxt : triggerPermissionWarning}
+            className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${
+              canDownload
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+            }`}
+            title={canDownload ? '下載完整對話逐字稿純文字檔' : `資安管制：僅限本次家訪導師（${visitingTeacher}）可下載逐字稿`}
           >
-            <FileText className="w-3.5 h-3.5" />
+            {!canDownload ? <Lock className="w-3.5 h-3.5 text-slate-400" /> : <FileText className="w-3.5 h-3.5" />}
             <span>下載逐字稿 (.txt)</span>
           </button>
 
+          {/* Print / Save PDF */}
           <button
             id="btn-print-pdf"
-            onClick={handlePrint}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
+            onClick={canDownload ? handlePrint : triggerPermissionWarning}
+            className={`px-3.5 py-2 text-xs font-medium rounded-lg shadow-xs transition-colors flex items-center gap-1.5 ${
+              canDownload
+                ? 'bg-slate-800 hover:bg-slate-700 text-white'
+                : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-70'
+            }`}
+            title={canDownload ? '列印本表單或儲存為 PDF' : `資安管制：僅限本次家訪導師（${visitingTeacher}）可列印/儲存 PDF`}
           >
-            <Printer className="w-3.5 h-3.5" />
+            {!canDownload ? <Lock className="w-3.5 h-3.5 text-slate-500" /> : <Printer className="w-3.5 h-3.5" />}
             <span>列印 / 存為 PDF</span>
           </button>
 
+          {/* Download Docx */}
           <button
             id="btn-download-docx"
-            onClick={handleDownloadDocx}
-            disabled={isExportingDocx}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center gap-1.5"
+            onClick={canDownload ? handleDownloadDocx : triggerPermissionWarning}
+            disabled={canDownload ? isExportingDocx : false}
+            className={`px-4 py-2 text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center gap-1.5 ${
+              canDownload
+                ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-70'
+            }`}
+            title={canDownload ? '下載完整格式 Word 公文表' : `資安管制：僅限本次家訪導師（${visitingTeacher}）可下載 Word 公文`}
           >
-            <Download className="w-4 h-4" />
-            <span>{isExportingDocx ? '正在打包 Word...' : '下載 Word 檔 (.docx)'}</span>
+            {!canDownload ? <Lock className="w-4 h-4 text-slate-500" /> : <Download className="w-4 h-4" />}
+            <span>
+              {!canDownload
+                ? 'Word 檔 (未授權下載)'
+                : isExportingDocx
+                ? '正在打包 Word...'
+                : '下載 Word 檔 (.docx)'}
+            </span>
           </button>
         </div>
       </div>
@@ -239,7 +457,12 @@ ${(summary?.crossOfficeReferrals || []).join('、 ') || '無'}
               訪視日期時間
             </div>
             <div className="col-span-4 p-2 border-r border-slate-900">
-              {visitInfo.visitDate} ({visitInfo.visitTime || '—'})
+              {visitInfo.visitDate} ({visitInfo.visitTime || (visitInfo.visitStartTime ? `${visitInfo.visitStartTime} ~ ${visitInfo.visitEndTime}` : '—')})
+              {visitInfo.visitDurationMinutes ? (
+                <span className="text-xs text-slate-600 ml-1">
+                  [共{visitInfo.visitDurationMinutes}分鐘]
+                </span>
+              ) : null}
             </div>
             <div className="col-span-2 bg-slate-100 p-2 font-bold text-center border-r border-slate-900">
               訪視形式

@@ -37,7 +37,10 @@ export interface VisitInfo {
   teacherName: string; // 訪視導師
   accompanyStaff?: string; // 隨同人員 (如生教組長、輔導老師、社工)
   visitDate: string; // 訪視日期 YYYY-MM-DD
-  visitTime: string; // 訪視時間 HH:mm ~ HH:mm
+  visitTime: string; // 訪視時間區段 e.g. 14:30 ~ 15:45
+  visitStartTime?: string; // 訪視開始時間 HH:mm e.g. 14:30
+  visitEndTime?: string; // 訪視結束時間 HH:mm e.g. 15:45
+  visitDurationMinutes?: number; // 訪視時長 (分鐘)
   visitType: VisitType; // 訪視形式
   visitLocation: string; // 訪視地點
   attendees: string; // 受訪對象與關係 (e.g. 父親、母親、祖母、學生本人)
@@ -70,4 +73,14 @@ export interface VisitRecord {
   transcripts: TranscriptItem[];
   summary?: VisitSummary;
   audioDurationSeconds: number;
+}
+
+export type UserRole = 'teacher' | 'dean';
+
+export interface CurrentUser {
+  role: UserRole;
+  name: string; // e.g. '王偉仁 老師' or '胡方奕'
+  title: string; // e.g. '班級導師' or '學務主任'
+  account?: string; // 'slvssa300300'
+  isDeanAuthenticated?: boolean;
 }
