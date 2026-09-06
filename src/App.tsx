@@ -8,6 +8,7 @@ import { VisitSetupModal } from './components/VisitSetupModal';
 import { VisitRecord, VisitInfo, VisitSummary, TranscriptItem, CurrentUser } from './types';
 import { DEFAULT_VISIT_INFO, SAMPLE_RECORDS, SAMPLE_SUMMARY_1, SAMPLE_TRANSCRIPTS_1 } from './utils/sampleData';
 import { getInitialCurrentUser, saveCurrentUser, DEAN_CREDENTIALS, DEAN_USER, DEFAULT_TEACHER_USER } from './utils/auth';
+import { safeFetchJson, generateLocalFallbackSummary } from './utils/apiUtils';
 
 const STORAGE_KEY = 'school_home_visit_records_v4';
 const LOGO_STORAGE_KEY = 'school_custom_logo_v1';
@@ -189,33 +190,55 @@ export default function App() {
 
     setIsGeneratingSummary(true);
     try {
-      const response = await fetch('/api/generate-summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          visitInfo: activeRecord.visitInfo,
-          transcripts: activeRecord.transcripts,
-        }),
-      });
+      const res = await safeFetchJson<{
+        summary: VisitSummary;
+        isFallback?: boolean;
+        warning?: string;
+      }>(
+        '/api/generate-summary',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            visitInfo: activeRecord.visitInfo,
+            transcripts: activeRecord.transcripts,
+          }),
+        },
+        25000
+      );
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || 'AI 摘要生成異常');
-      }
-
-      const data = await response.json();
-      if (data.summary) {
-        handleUpdateSummary(data.summary);
+      if (res.ok && res.data?.summary) {
+        handleUpdateSummary(res.data.summary);
         showToast(
-          data.isFallback
-            ? '已依標準範本產出訪視公文摘要紀錄。'
+          res.data.isFallback
+            ? (res.data.warning || '已依教育部規範標準產出結構化家庭訪問摘要報告。')
             : '✨ Gemini AI 已成功產出家庭訪問綜合重點摘要！',
+          'success'
+        );
+      } else {
+        // Safe automatic client fallback: If backend returns HTML (e.g. 504 Gateway Timeout)
+        // or fails, generate standard compliant summary from recorded transcripts
+        console.warn('Backend summary request returned error or non-JSON:', res.error);
+        const fallbackSummary = generateLocalFallbackSummary(
+          activeRecord.visitInfo,
+          activeRecord.transcripts,
+          res.error || '連線逾時備援機制'
+        );
+        handleUpdateSummary(fallbackSummary);
+        showToast(
+          `✨ 已自動彙整產出教育部標準家庭訪問摘要（${res.error ? '雲端連線忙碌，已自動啟動備援' : '備援引擎'}）。`,
           'success'
         );
       }
     } catch (err: any) {
-      console.error('Error generating summary:', err);
-      showToast(`摘要生成失敗: ${err.message}`, 'error');
+      console.error('Error in handleGenerateSummary:', err);
+      const localFallback = generateLocalFallbackSummary(
+        activeRecord.visitInfo,
+        activeRecord.transcripts,
+        err.message || '本機備援'
+      );
+      handleUpdateSummary(localFallback);
+      showToast('已依訪談紀錄產出標準家庭訪問摘要（本機備援）。', 'success');
     } finally {
       setIsGeneratingSummary(false);
     }

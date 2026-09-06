@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { TranscriptItem, SpeakerType, FlagCategory, VisitRecord } from '../types';
 import { speechService } from '../services/speechService';
+import { safeFetchJson } from '../utils/apiUtils';
 
 interface LiveRecorderProps {
   activeRecord: VisitRecord;
@@ -431,21 +432,24 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
       const reader = new FileReader();
       reader.onload = async () => {
         const base64Data = (reader.result as string).split(',')[1];
-        const res = await fetch('/api/transcribe-audio', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            audioBase64: base64Data,
-            mimeType: file.type || 'audio/webm',
-          }),
-        });
+        const res = await safeFetchJson<{ transcripts?: any[] }>(
+          '/api/transcribe-audio',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              audioBase64: base64Data,
+              mimeType: file.type || 'audio/webm',
+            }),
+          },
+          45000
+        );
 
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error || '音訊轉譯失敗');
+        if (!res.ok || !res.data) {
+          throw new Error(res.error || '音訊轉譯失敗');
         }
 
-        const data = await res.json();
+        const data = res.data;
         if (data.transcripts && Array.isArray(data.transcripts)) {
           const newItems: TranscriptItem[] = data.transcripts.map((t: any, idx: number) => ({
             id: `tr-up-${Date.now()}-${idx}`,

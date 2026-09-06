@@ -18,6 +18,7 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { VisitRecord, VisitSummary, ActionItem, CareLevel } from '../types';
+import { safeFetchJson } from '../utils/apiUtils';
 
 interface SummaryEditorProps {
   activeRecord: VisitRecord;
@@ -147,26 +148,32 @@ export const SummaryEditor: React.FC<SummaryEditorProps> = ({
     setIsRefining(true);
 
     try {
-      const res = await fetch('/api/refine-summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sectionKey: label,
-          originalText: summary[sectionKey],
-          instruction: refinePrompt,
-          visitInfo: activeRecord.visitInfo,
-        }),
-      });
+      const res = await safeFetchJson<{ refinedText?: string }>(
+        '/api/refine-summary',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sectionKey: label,
+            originalText: summary[sectionKey],
+            instruction: refinePrompt,
+            visitInfo: activeRecord.visitInfo,
+          }),
+        },
+        20000
+      );
 
-      if (!res.ok) throw new Error('AI 修飾失敗');
-      const data = await res.json();
-      if (data.refinedText) {
-        handleFieldChange(sectionKey, data.refinedText);
+      if (!res.ok || !res.data) {
+        throw new Error(res.error || 'AI 修飾失敗');
+      }
+
+      if (res.data.refinedText) {
+        handleFieldChange(sectionKey, res.data.refinedText);
       }
       setRefiningSection(null);
       setRefinePrompt('');
     } catch (err: any) {
-      alert(err.message || '修飾失敗');
+      alert(`修飾失敗: ${err.message || '請稍後重試'}`);
     } finally {
       setIsRefining(false);
     }

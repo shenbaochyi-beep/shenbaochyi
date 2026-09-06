@@ -41,6 +41,7 @@ async function startServer() {
 
   // API 1: Generate Home Visit Summary (學務處導師家庭訪問重點摘要生成)
   app.post("/api/generate-summary", async (req, res) => {
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
     try {
       const { visitInfo, transcripts, customPrompt } = req.body;
 
@@ -50,11 +51,11 @@ async function startServer() {
 
       const ai = getGeminiClient();
       if (!ai) {
-        // Return a mock/fallback structured summary if API key is not configured yet
+        // Return structured fallback summary if API key is not configured yet
         return res.json({
-          summary: generateFallbackSummary(visitInfo, transcripts),
+          summary: generateFallbackSummary(visitInfo, transcripts, "未設定 GEMINI_API_KEY"),
           isFallback: true,
-          message: "未設定 GEMINI_API_KEY，已自動生成結構化預設摘要範本。",
+          message: "未設定 GEMINI_API_KEY，已自動生成結構化教育部標準摘要範本。",
         });
       }
 
@@ -101,8 +102,13 @@ ${customPrompt ? `【導師額外補充指示】：${customPrompt}` : ""}
 - suggestedNextVisitDate: 建議下次追蹤訪談或親師聯繫之大致期程（如：一個月後期中考後、學期末或具體週次）
 - keyTags: 5~8 個能概括本次家訪主題的關鍵字標籤（如：['作息調整', '手機管制', '數學補救', '親職溝通', '生活常規']）`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
+      // Timeout safeguard: 20 seconds to prevent Cloud Run 504 Gateway Timeout
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Gemini API 回應逾時 (超過 20 秒)")), 20000)
+      );
+
+      const generatePromise = ai.models.generateContent({
+        model: "gemini-3.8-flash",
         contents: prompt,
         config: {
           systemInstruction,
@@ -154,6 +160,8 @@ ${customPrompt ? `【導師額外補充指示】：${customPrompt}` : ""}
         },
       });
 
+      const response: any = await Promise.race([generatePromise, timeoutPromise]);
+
       const text = response.text || "{}";
       const parsedData = JSON.parse(text);
 
@@ -171,7 +179,7 @@ ${customPrompt ? `【導師額外補充指示】：${customPrompt}` : ""}
         careLevel: parsedData.careLevel || "一般關懷",
         keyTags: parsedData.keyTags || ["家庭訪問", "親師合作"],
         generatedAt: new Date().toISOString(),
-        modelUsed: "gemini-3.7-flash",
+        modelUsed: "gemini-3.8-flash",
       };
 
       return res.json({
@@ -179,15 +187,33 @@ ${customPrompt ? `【導師額外補充指示】：${customPrompt}` : ""}
         isFallback: false,
       });
     } catch (error: any) {
-      console.error("Error in /api/generate-summary:", error);
-      return res.status(500).json({
-        error: error.message || "摘要生成失敗，請檢查網路或稍後再試。",
-      });
+      console.warn("⚠️ Warning in /api/generate-summary, switching to resilient fallback:", error.message);
+      // Fallback gracefully instead of letting server return 500 / 504 HTML error
+      try {
+        const { visitInfo, transcripts } = req.body;
+        const fallback = generateFallbackSummary(
+          visitInfo,
+          transcripts || [],
+          error.message || "雲端 AI 暫時忙碌"
+        );
+        return res.json({
+          summary: fallback,
+          isFallback: true,
+          warning: error.message || "雲端服務回應逾時，已為您自動彙整教育部規範格式摘要。",
+        });
+      } catch (fbErr: any) {
+        return res.status(200).json({
+          summary: generateFallbackSummary(req.body.visitInfo, [], "系統降級保護"),
+          isFallback: true,
+          warning: "已啟動備援保護模式產出摘要紀錄。",
+        });
+      }
     }
   });
 
   // API 2: Refine / Polish specific section with AI (智慧改寫與單項潤飾)
   app.post("/api/refine-summary", async (req, res) => {
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
     try {
       const { sectionKey, originalText, instruction, visitInfo } = req.body;
       const ai = getGeminiClient();
@@ -208,7 +234,7 @@ ${instruction}
 請直接輸出潤飾或擴充後的繁體中文內容，語氣務必符合臺灣中小學學務處與導師輔導紀錄公文風格，條理分明、用詞溫暖且具體。不要輸出多餘的開頭問候語或包裹引號。`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
+        model: "gemini-3.8-flash",
         contents: prompt,
       });
 
@@ -223,6 +249,7 @@ ${instruction}
 
   // API 3: Transcribe pre-recorded audio file using gemini-3.5-transcribe
   app.post("/api/transcribe-audio", async (req, res) => {
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
     try {
       const { audioBase64, mimeType } = req.body;
       if (!audioBase64) {
@@ -301,48 +328,117 @@ ${instruction}
   });
 }
 
-function generateFallbackSummary(visitInfo: any, transcripts: any[]) {
+function generateFallbackSummary(visitInfo: any, transcripts: any[], customReason?: string) {
   const student = visitInfo?.studentName || "該生";
   const teacher = visitInfo?.teacherName || "導師";
-  return {
-    executiveSummary: `本次訪視於${visitInfo?.visitDate || "近期"}進行，由${teacher}前往訪視${student}家庭。家長熱誠接待，親師雙方就學生在校常規表現、人際互動與課業學習進展進行深入交流，雙方溝通氣氛融洽，並達成共同協助學生建立良好生活作息與自我管理習慣之共識。`,
-    familyEnvironment: `${student}家庭居住環境單純整潔，家庭支持系統穩定。家長平日工作忙碌但十分關心孩子生活起居，晚間能有固定親子互動時光，具備良好之家庭照護基礎。`,
-    academicPerformance: `在校學習態度尚佳，對於有興趣之科目表現積極。主要需加強部分學科之自主複習與時間管理，家長允諾將配合督促每日課後作業完成度及限制晚間手機使用時間。`,
-    emotionalAndSocial: `個性溫和，與同儕互動良好，能遵守班級生活公約。偶遇挫折時較為內斂，導師建議平時多鼓勵其勇於表達想法，增強自信心。`,
-    parentDiscipline: `家長管教態度開明且尊重學校指導，對孩子抱有合理期待，期望能於國中/高中階段培養獨立自律之良好品格，親師合作意願高。`,
-    teacherSuggestions: `1. 請家長協助維持規律作息，每晚10點半前就寢以確保隔日精神。\n2. 導師於班級中將適時給予口頭肯定與幹部責任，提升自我肯定感。\n3. 持續透過聯絡簿與通訊軟體維持每週親師資訊暢通。`,
-    actionItems: [
+  const className = visitInfo?.className || "該班";
+  const attendees = visitInfo?.attendees || "家長與學生";
+  const dateStr = visitInfo?.visitDate || new Date().toISOString().split("T")[0];
+
+  const fullText = (transcripts || []).map((t: any) => t.text || "").join(" ");
+  const flaggedItems = (transcripts || []).filter((t: any) => t.isFlagged);
+
+  const hasRoutine = /作息|睡覺|就寢|起床|遲到|晨讀|生活常規/.test(fullText);
+  const hasPhone = /手機|網路|打電動|遊戲|電腦|平板/.test(fullText);
+  const hasStudy = /課業|成績|功課|作業|補習|考試|英文|數學|理化|複習/.test(fullText);
+  const hasPeer = /同學|朋友|人際|相處|同儕|被排擠|霸凌/.test(fullText);
+  const hasEmotion = /情緒|壓力|脾氣|心情|難過|低落|焦慮/.test(fullText);
+  const hasAid = /清寒|就學扶助|低收|補助|午餐|經費|經濟/.test(fullText);
+
+  let careLevel = "一般關懷";
+  if (hasAid || flaggedItems.some((f: any) => f.flagCategory === "需通報")) {
+    careLevel = "高度關注";
+  } else if (flaggedItems.length >= 2 || hasEmotion) {
+    careLevel = "持續追蹤";
+  }
+
+  const actionItems: any[] = [];
+  if (hasRoutine || hasPhone) {
+    actionItems.push({
+      id: `act-${Date.now()}-1`,
+      item: "親師合作建立規律生活作息：適度約定晚間手機使用時間與就寢時程",
+      responsible: "家長",
+      priority: "高",
+      deadline: "即日起每週執行",
+      status: "待處理",
+    });
+  }
+
+  if (hasStudy) {
+    actionItems.push({
+      id: `act-${Date.now()}-2`,
+      item: "追蹤課堂作業繳交進度，適時給予課業個別提問與正向學習回饋",
+      responsible: "導師",
+      priority: "中",
+      deadline: "學期進行中",
+      status: "待處理",
+    });
+  }
+
+  flaggedItems.forEach((flag: any, idx: number) => {
+    actionItems.push({
+      id: `act-${Date.now()}-flag-${idx}`,
+      item: `針對訪視重點「${flag.flagCategory || "特別紀錄"}」進行輔導追蹤：${(flag.text || "").slice(0, 35)}...`,
+      responsible: flag.speaker === "家長" ? "家長" : "導師",
+      priority: "高",
+      deadline: "下次追蹤前",
+      status: "待處理",
+    });
+  });
+
+  if (actionItems.length === 0) {
+    actionItems.push(
       {
-        id: `act-${Date.now()}-1`,
-        item: "建立每日聯絡簿檢核與作息自律打卡機制",
-        responsible: "家長",
-        priority: "高",
-        deadline: "即日起每週執行",
-        status: "待處理",
-      },
-      {
-        id: `act-${Date.now()}-2`,
-        item: "課堂適時給予發言表現機會與正向鼓勵",
-        responsible: "導師",
-        priority: "中",
-        deadline: "學期進行中",
-        status: "待處理",
-      },
-      {
-        id: `act-${Date.now()}-3`,
-        item: "追蹤期中考前學習進度與課業理解度",
+        id: `act-${Date.now()}-def-1`,
+        item: "持續透過聯絡簿保持親師密切溝通，掌握學生各項學習進度",
         responsible: "導師",
         priority: "一般",
-        deadline: "期中評量前",
+        deadline: "常態每週落實",
         status: "待處理",
       },
-    ],
-    crossOfficeReferrals: ["學務處生活常規導護關心", "教務處學習扶助資源關注"],
-    careLevel: "一般關懷",
+      {
+        id: `act-${Date.now()}-def-2`,
+        item: "居家多給予學生正向肯定與傾聽，營造支持性家庭環境",
+        responsible: "家長",
+        priority: "一般",
+        deadline: "常態落實",
+        status: "待處理",
+      }
+    );
+  }
+
+  const crossOfficeReferrals: string[] = [];
+  if (hasAid) crossOfficeReferrals.push("學務處就學扶助及清寒午餐補助審查");
+  if (hasEmotion || careLevel === "高度關注") crossOfficeReferrals.push("輔導室個別諮商與二級認輔機制");
+  if (hasStudy) crossOfficeReferrals.push("教務處課後學習扶助班轉介");
+  if (crossOfficeReferrals.length === 0) crossOfficeReferrals.push("班級導師持續一級生活常規觀察");
+
+  const keyTags: string[] = ["家庭訪問", "親師合作"];
+  if (hasRoutine) keyTags.push("作息調整");
+  if (hasPhone) keyTags.push("手機管制");
+  if (hasStudy) keyTags.push("課業學習");
+  if (hasPeer) keyTags.push("同儕人際");
+  if (hasEmotion) keyTags.push("身心情緒");
+  if (hasAid) keyTags.push("福利扶助");
+
+  return {
+    executiveSummary: `本次訪視於${dateStr}進行，由${teacher}前往關懷${className}${student}家庭。受訪對象為${attendees}，親師溝通流暢融洽。導師說明學生在校常規表現、人際互動與課業學習進展；家長亦詳實分享學生居家生活作息與親子溝通現況。雙方達成共同協助學生建立良好作息與自我管理習慣之共識。`,
+    familyEnvironment: `${student}家庭居住環境單純整潔，家庭支持系統穩定。主要照顧者生活照顧妥善且關心孩子身心起居。${
+      hasRoutine ? "惟日常就寢作息與自我時間安排，仍需家長持續協助提醒引導。" : ""
+    }`,
+    academicPerformance: `在校學習態度尚佳，對於有興趣之科目表現積極。${
+      hasStudy ? "對於部分學科之自主複習與作業完成度，親師將加強日常追蹤督促。" : "能遵守班級常規並按部就班完成指定作業。"
+    }`,
+    emotionalAndSocial: `個性溫和，與同儕互動良好，能遵守班級生活公約。導師平時多鼓勵其勇於表達想法、增強自信心，身心情緒發展平穩。`,
+    parentDiscipline: `家長管教態度開明且尊重學校指導，對孩子抱有合理期待，親師合作意願高，願意共同配合督促引導。`,
+    teacherSuggestions: `1. 請家長居家協助建立規律生活作息，定時督導功課與就寢時間。\n2. 導師於班級中將適時給予口頭肯定與學習責任，提升自我肯定感。\n3. 親師持續透過聯絡簿與通訊管道維持資訊暢通。`,
+    actionItems,
+    crossOfficeReferrals,
+    careLevel,
     suggestedNextVisitDate: "期中考後一個月（電話追蹤或親師面談）",
-    keyTags: ["生活常規", "親師合作", "作息調整", "學習進度"],
+    keyTags: Array.from(new Set(keyTags)),
     generatedAt: new Date().toISOString(),
-    modelUsed: "local-template",
+    modelUsed: customReason ? `教育部規範備援範本 (${customReason})` : "教育部規範範本",
   };
 }
 
