@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Mic,
   MicOff,
@@ -20,7 +20,10 @@ import {
   AlertCircle,
   Wand2,
   Tag,
-  ArrowRight
+  ArrowRight,
+  Download,
+  RefreshCw,
+  Eye,
 } from 'lucide-react';
 import { TranscriptItem, SpeakerType, FlagCategory, VisitRecord } from '../types';
 import { speechService } from '../services/speechService';
@@ -40,6 +43,56 @@ const FLAG_CATEGORIES: { label: string; value: FlagCategory; color: string }[] =
   { label: '親職管教', value: '親職管教', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
   { label: '需通報/危機', value: '需通報', color: 'bg-rose-100 text-rose-800 border-rose-300' },
   { label: '待追蹤決議', value: '待追蹤', color: 'bg-orange-100 text-orange-800 border-orange-300' },
+];
+
+export const AVAILABLE_SPEAKERS: {
+  value: SpeakerType;
+  label: string;
+  icon: string;
+  badgeClass: string;
+  activeColor: string;
+  inactiveClass: string;
+}[] = [
+  {
+    value: '導師',
+    label: '導師',
+    icon: '👩‍🏫',
+    badgeClass: 'bg-blue-100 text-blue-900 border-blue-300',
+    activeColor: 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400',
+    inactiveClass: 'bg-blue-50/80 text-blue-800 hover:bg-blue-100 border-blue-200',
+  },
+  {
+    value: '家長',
+    label: '家長',
+    icon: '👨‍👩‍👧',
+    badgeClass: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+    activeColor: 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400',
+    inactiveClass: 'bg-emerald-50/80 text-emerald-800 hover:bg-emerald-100 border-emerald-200',
+  },
+  {
+    value: '學生',
+    label: '學生',
+    icon: '🧑‍🎓',
+    badgeClass: 'bg-amber-100 text-amber-900 border-amber-300',
+    activeColor: 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400',
+    inactiveClass: 'bg-amber-50/80 text-amber-800 hover:bg-amber-100 border-amber-200',
+  },
+  {
+    value: '輔導老師',
+    label: '輔導老師',
+    icon: '🧑‍💼',
+    badgeClass: 'bg-purple-100 text-purple-900 border-purple-300',
+    activeColor: 'bg-purple-600 text-white shadow-sm ring-2 ring-purple-400',
+    inactiveClass: 'bg-purple-50/80 text-purple-800 hover:bg-purple-100 border-purple-200',
+  },
+  {
+    value: '其他',
+    label: '其他',
+    icon: '👥',
+    badgeClass: 'bg-slate-100 text-slate-800 border-slate-300',
+    activeColor: 'bg-slate-700 text-white shadow-sm ring-2 ring-slate-400',
+    inactiveClass: 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200',
+  },
 ];
 
 export const LiveRecorder: React.FC<LiveRecorderProps> = ({
@@ -66,7 +119,28 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
   const timerRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto scroll to bottom when new transcript is added
+  // Synchronized refs to avoid stale closure across continuous speech events
+  const transcriptsRef = useRef<TranscriptItem[]>(activeRecord.transcripts);
+  useEffect(() => {
+    transcriptsRef.current = activeRecord.transcripts;
+  }, [activeRecord.transcripts]);
+
+  const activeSpeakerRef = useRef<SpeakerType>(activeSpeaker);
+  useEffect(() => {
+    activeSpeakerRef.current = activeSpeaker;
+  }, [activeSpeaker]);
+
+  const elapsedSecondsRef = useRef<number>(elapsedSeconds);
+  useEffect(() => {
+    elapsedSecondsRef.current = elapsedSeconds;
+  }, [elapsedSeconds]);
+
+  const interimTextRef = useRef<string>(interimText);
+  useEffect(() => {
+    interimTextRef.current = interimText;
+  }, [interimText]);
+
+  // Auto scroll to bottom when new transcript is added or during live speech
   useEffect(() => {
     transcriptsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeRecord.transcripts, interimText]);
@@ -85,7 +159,7 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
     };
   }, [isRecording]);
 
-  const formatTimer = (totalSeconds: number) => {
+  const formatTimer = useCallback((totalSeconds: number) => {
     const hrs = Math.floor(totalSeconds / 3600);
     const mins = Math.floor((totalSeconds % 3600) / 60);
     const secs = totalSeconds % 60;
@@ -93,32 +167,99 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
       return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
     }
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  };
+  }, []);
+
+  // Core sentence commit function - guarantees full accumulation without overwriting previous turns
+  const commitTranscript = useCallback((rawText: string, speaker?: SpeakerType) => {
+    const text = rawText.trim();
+    if (!text) return;
+
+    const currentList = transcriptsRef.current;
+    const currentSec = elapsedSecondsRef.current;
+    const currentSpeaker = speaker || activeSpeakerRef.current;
+
+    // Smart check against the last transcript item from the SAME speaker:
+    const last = currentList[currentList.length - 1];
+    if (last && last.speaker === currentSpeaker && (currentSec - (last.timestampSeconds || 0)) < 25) {
+      // 1. Exact duplicate sentence
+      if (last.text === text) {
+        setInterimText('');
+        interimTextRef.current = '';
+        return;
+      }
+      // 2. If new text extends/completes the previous partial sentence:
+      // e.g. last was "孩子在學校", new is "孩子在學校的作息與學習情況"
+      if (text.startsWith(last.text)) {
+        const updatedList = currentList.map((item, idx) =>
+          idx === currentList.length - 1 ? { ...item, text } : item
+        );
+        transcriptsRef.current = updatedList;
+        onUpdateTranscripts(updatedList);
+        setInterimText('');
+        interimTextRef.current = '';
+        return;
+      }
+      // 3. If previous card already contains this new text completely (e.g. prefix was re-emitted)
+      if (last.text.includes(text) && last.text.length > text.length) {
+        setInterimText('');
+        interimTextRef.current = '';
+        return;
+      }
+    }
+
+    const newItem: TranscriptItem = {
+      id: `tr-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      timestamp: formatTimer(currentSec),
+      timestampSeconds: currentSec,
+      speaker: currentSpeaker,
+      text,
+    };
+
+    const nextList = [...currentList, newItem];
+    transcriptsRef.current = nextList;
+    onUpdateTranscripts(nextList);
+    setInterimText('');
+    interimTextRef.current = '';
+
+    // If currently filtered to another speaker, reset filter to 'all' so new speech is immediately visible on screen!
+    if (filterSpeaker !== 'all' && filterSpeaker !== currentSpeaker) {
+      setFilterSpeaker('all');
+    }
+  }, [formatTimer, onUpdateTranscripts, filterSpeaker]);
+
+  // Keep speechService callbacks bound to current commitTranscript
+  useEffect(() => {
+    if (isRecording) {
+      speechService.setCallbacks({
+        onFinalResult: (text) => {
+          commitTranscript(text);
+        },
+        onInterimResult: (text) => {
+          setInterimText(text);
+        },
+      });
+    }
+  }, [isRecording, commitTranscript]);
 
   const handleStartRecording = async () => {
     setMicError(null);
+    // Ensure all dialogue is visible on the screen during recording
+    setFilterSpeaker('all');
+    setFilterOnlyFlagged(false);
+
     try {
       await speechService.start({
         onInterimResult: (text) => {
           setInterimText(text);
         },
         onFinalResult: (text) => {
-          if (!text.trim()) return;
-          const newItem: TranscriptItem = {
-            id: `tr-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-            timestamp: formatTimer(elapsedSeconds),
-            timestampSeconds: elapsedSeconds,
-            speaker: activeSpeaker,
-            text: text.trim(),
-          };
-          onUpdateTranscripts([...activeRecord.transcripts, newItem]);
-          setInterimText('');
+          commitTranscript(text);
         },
         onAudioLevel: (level) => {
           setAudioLevel(level);
         },
         onError: (err) => {
-          setMicError(`麥克風提醒: ${err}`);
+          setMicError(`麥克風連線狀態: ${err}`);
         },
         onStatusChange: (listening) => {
           setIsRecording(listening);
@@ -132,6 +273,10 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
   };
 
   const handleStopRecording = () => {
+    // Flush any pending speech in interim buffer before stopping
+    if (interimTextRef.current.trim()) {
+      commitTranscript(interimTextRef.current.trim());
+    }
     speechService.stop();
     setIsRecording(false);
     setAudioLevel(0);
@@ -141,21 +286,12 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
   const handleAddManualEntry = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualInput.trim()) return;
-
-    const newItem: TranscriptItem = {
-      id: `tr-manual-${Date.now()}`,
-      timestamp: formatTimer(elapsedSeconds),
-      timestampSeconds: elapsedSeconds,
-      speaker: activeSpeaker,
-      text: manualInput.trim(),
-    };
-
-    onUpdateTranscripts([...activeRecord.transcripts, newItem]);
+    commitTranscript(manualInput.trim(), activeSpeaker);
     setManualInput('');
   };
 
   const handleToggleFlag = (id: string, category?: FlagCategory) => {
-    const updated = activeRecord.transcripts.map((item) => {
+    const updated = transcriptsRef.current.map((item) => {
       if (item.id === id) {
         const isFlagged = !item.isFlagged || (category && item.flagCategory !== category);
         return {
@@ -166,11 +302,14 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
       }
       return item;
     });
+    transcriptsRef.current = updated;
     onUpdateTranscripts(updated);
   };
 
   const handleDeleteTranscript = (id: string) => {
-    onUpdateTranscripts(activeRecord.transcripts.filter((t) => t.id !== id));
+    const updated = transcriptsRef.current.filter((t) => t.id !== id);
+    transcriptsRef.current = updated;
+    onUpdateTranscripts(updated);
   };
 
   const handleStartEdit = (item: TranscriptItem) => {
@@ -180,41 +319,104 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
 
   const handleSaveEdit = (id: string) => {
     if (!editingText.trim()) return;
-    const updated = activeRecord.transcripts.map((t) =>
+    const updated = transcriptsRef.current.map((t) =>
       t.id === id ? { ...t, text: editingText.trim() } : t
     );
+    transcriptsRef.current = updated;
     onUpdateTranscripts(updated);
     setEditingId(null);
   };
 
   const handleChangeItemSpeaker = (id: string, newSpeaker: SpeakerType) => {
-    const updated = activeRecord.transcripts.map((t) =>
+    const updated = transcriptsRef.current.map((t) =>
       t.id === id ? { ...t, speaker: newSpeaker } : t
     );
+    transcriptsRef.current = updated;
     onUpdateTranscripts(updated);
+  };
+
+  // Instant speaker switch handler: flushes previous speech immediately, sets new role, and guarantees active recording
+  const handleSwitchSpeaker = async (newSpeaker: SpeakerType) => {
+    // 1. Immediately commit any pending recognized text under previous speaker so nothing is lost
+    if (interimTextRef.current.trim()) {
+      commitTranscript(interimTextRef.current.trim(), activeSpeakerRef.current);
+    }
+    // 2. Restart recognition session to clear old speaker's buffer
+    speechService.restartSession();
+
+    // 3. Set the new speaker immediately
+    setActiveSpeaker(newSpeaker);
+    activeSpeakerRef.current = newSpeaker;
+
+    // 4. Ensure all dialogue is visible on the screen so new speaker's content is displayed
+    setFilterSpeaker('all');
+    setFilterOnlyFlagged(false);
+
+    // 5. Guarantee microphone is recording immediately so speech is captured on the screen right away
+    if (!isRecording) {
+      await handleStartRecording();
+    }
+
+    // 6. Scroll to bottom so the new speaker state is right in front of the teacher
+    requestAnimationFrame(() => {
+      transcriptsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
+  };
+
+  // Quick Speech Simulator by speaker (for instant testing of any role on screen)
+  const handleSimulateSpeechForSpeaker = (speaker: SpeakerType) => {
+    const rolePhrases: Record<string, { text: string; flag?: FlagCategory }[]> = {
+      '導師': [
+        { text: '家長您好，今天特別跟您交流孩子在學校的作息與學習情況。' },
+        { text: '他在學校跟同學相處融洽，近期上課參與度也有明顯提升！' },
+        { text: '那我們約定晚上十一點就寢，並且我幫你報名學校的學習扶助班！', flag: '重點' },
+      ],
+      '家長': [
+        { text: '老師好，感謝老師特別抽空到訪。他最近在家常常玩手機到很晚，早上叫不太起床。' },
+        { text: '我們一定會全力配合導師指導，在家多關心他的複習進度。', flag: '待追蹤' },
+        { text: '很感謝學校老師們平常這麼用心照顧孩子！' },
+      ],
+      '學生': [
+        { text: '老師好，我最近數理公式有點記不住，所以晚上都在房間查影片複習。' },
+        { text: '我會調整作息早點睡覺，明天開始上課會更加認真！' },
+        { text: '我有報名學校的課後輔導，希望能把數學成績拉上來。' },
+      ],
+      '輔導老師': [
+        { text: '孩子情緒表達其實很細膩，我們輔導室會持續提供個別心理支持與諮商談話。', flag: '身心情緒' },
+        { text: '建議家長可以用正向傾聽的方式多給予鼓勵，建立溫暖的信任感。' },
+        { text: '後續輔導室也會追蹤身心調適進度，與導師密切橫向聯繫共同協助孩子。', flag: '待追蹤' },
+      ],
+      '輔導員': [
+        { text: '輔導處已備齊生涯探索與課業諮詢相關手冊，隨時歡迎家長與學生前來諮詢。' },
+      ],
+      '其他': [
+        { text: '隨同里長及社工同仁也到場關懷家庭生活需求，若有物資或急難補助可隨時提出。' },
+      ],
+    };
+
+    const phrases = rolePhrases[speaker] || rolePhrases['導師'];
+    const randomItem = phrases[Math.floor(Math.random() * phrases.length)];
+    const currentSec = elapsedSecondsRef.current;
+    const newItem: TranscriptItem = {
+      id: `tr-sim-${Date.now()}`,
+      timestamp: formatTimer(currentSec + Math.floor(Math.random() * 5)),
+      timestampSeconds: currentSec,
+      speaker: speaker,
+      text: randomItem.text,
+      isFlagged: Boolean(randomItem.flag),
+      flagCategory: randomItem.flag,
+    };
+    const nextList = [...transcriptsRef.current, newItem];
+    transcriptsRef.current = nextList;
+    onUpdateTranscripts(nextList);
+    requestAnimationFrame(() => {
+      transcriptsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
   };
 
   // Quick Speech Simulator (for instant demonstration/testing)
   const handleSimulateSpeech = () => {
-    const phrases = [
-      { speaker: '導師' as SpeakerType, text: '家長您好，今天特別跟您交流孩子在學校的作息與學習情況。' },
-      { speaker: '家長' as SpeakerType, text: '老師好，他最近在家裡常常玩手機到很晚，早上叫不太起床。' },
-      { speaker: '學生' as SpeakerType, text: '我最近數理公式有點記不住，所以晚上都在房間查影片複習。' },
-      { speaker: '導師' as SpeakerType, text: '那我們約定晚上十一點就寢，並且我幫你報名學校的學習扶助班！', flag: '重點' as FlagCategory },
-      { speaker: '家長' as SpeakerType, text: '太感謝老師了！我們一定會全力配合監督作息。', flag: '待追蹤' as FlagCategory },
-    ];
-
-    const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
-    const newItem: TranscriptItem = {
-      id: `tr-sim-${Date.now()}`,
-      timestamp: formatTimer(elapsedSeconds + Math.floor(Math.random() * 20)),
-      timestampSeconds: elapsedSeconds,
-      speaker: randomPhrase.speaker,
-      text: randomPhrase.text,
-      isFlagged: Boolean(randomPhrase.flag),
-      flagCategory: randomPhrase.flag,
-    };
-    onUpdateTranscripts([...activeRecord.transcripts, newItem]);
+    handleSimulateSpeechForSpeaker(activeSpeaker);
   };
 
   // Audio File Upload handler
@@ -252,7 +454,9 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
             speaker: (['導師', '家長', '學生', '輔導員', '其他'].includes(t.speaker) ? t.speaker : '其他') as SpeakerType,
             text: t.text || '',
           }));
-          onUpdateTranscripts([...activeRecord.transcripts, ...newItems]);
+          const nextList = [...transcriptsRef.current, ...newItems];
+          transcriptsRef.current = nextList;
+          onUpdateTranscripts(nextList);
         }
         setIsUploadingAudio(false);
       };
@@ -265,6 +469,22 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
       setUploadError(err.message || '音訊上傳處理異常');
       setIsUploadingAudio(false);
     }
+  };
+
+  const handleDownloadAudio = () => {
+    const blob = speechService.getRecordedBlob();
+    if (!blob || blob.size === 0) {
+      alert('目前尚未產生足夠的錄音暫存檔，請先點擊「開始收音」進行錄音。');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `家訪即時錄音_${activeRecord.visitInfo.studentName || '訪談'}_${new Date().toISOString().slice(0, 10)}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const filteredTranscripts = activeRecord.transcripts.filter((t) => {
@@ -407,40 +627,26 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
             {/* Active Speaker Switcher (Crucial for home visit roles) */}
             <div className="space-y-2 pt-2 border-t border-slate-100">
               <label className="block text-xs font-semibold text-slate-700">
-                目前發言者切換（即時套用）：
+                切換發言身分（即刻顯示錄音）：
               </label>
               <div className="grid grid-cols-2 gap-2">
-                {(['導師', '家長', '學生', '輔導員', '其他'] as SpeakerType[]).map((spk) => {
-                  const isActive = activeSpeaker === spk;
-                  let colorClass = '';
-                  let icon = '👩‍🏫';
-                  if (spk === '導師') {
-                    colorClass = isActive ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-800 hover:bg-blue-100';
-                    icon = '👩‍🏫';
-                  } else if (spk === '家長') {
-                    colorClass = isActive ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100';
-                    icon = '👨‍👩‍👧';
-                  } else if (spk === '學生') {
-                    colorClass = isActive ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-800 hover:bg-amber-100';
-                    icon = '🧑‍🎓';
-                  } else if (spk === '輔導員') {
-                    colorClass = isActive ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-800 hover:bg-purple-100';
-                    icon = '🧑‍💼';
-                  } else {
-                    colorClass = isActive ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200';
-                    icon = '👥';
-                  }
-
+                {AVAILABLE_SPEAKERS.map((spk) => {
+                  const isActive = activeSpeaker === spk.value;
                   return (
                     <button
-                      key={spk}
+                      key={spk.value}
                       type="button"
-                      onClick={() => setActiveSpeaker(spk)}
-                      className={`px-3 py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-between border border-transparent ${colorClass}`}
+                      onClick={() => handleSwitchSpeaker(spk.value)}
+                      className={`px-3 py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-between border cursor-pointer ${
+                        isActive
+                          ? spk.activeColor
+                          : spk.inactiveClass
+                      }`}
+                      title={`切換為「${spk.label}」並立即進行語音收音`}
                     >
                       <span className="flex items-center gap-1.5">
-                        <span>{icon}</span>
-                        <span>{spk}</span>
+                        <span>{spk.icon}</span>
+                        <span>{spk.label}</span>
                       </span>
                       {isActive && <Check className="w-3.5 h-3.5" />}
                     </button>
@@ -452,13 +658,13 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
             {/* Quick helper tools */}
             <div className="pt-2 border-t border-slate-100 space-y-2">
               <span className="block text-xs font-semibold text-slate-700">
-                輔助輸入方式：
+                輔助輸入與備份：
               </span>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={handleSimulateSpeech}
-                  className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1"
+                  className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
                   title="模擬訪談對話語句"
                 >
                   <Wand2 className="w-3 h-3 text-purple-600" />
@@ -477,6 +683,16 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
                     className="hidden"
                   />
                 </label>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadAudio}
+                  className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                  title="下載本次訪談錄製之音訊檔 (WebM 格式)"
+                >
+                  <Download className="w-3 h-3 text-emerald-600" />
+                  <span>下載錄音備份</span>
+                </button>
               </div>
 
               {uploadError && (
@@ -493,9 +709,14 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
             <div className="flex items-center space-x-2">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                 <span>即時轉譯螢幕</span>
-                <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800 font-normal">
-                  共 {activeRecord.transcripts.length} 則對話
+                <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800 font-semibold">
+                  共 {activeRecord.transcripts.length} 則完整呈現
                 </span>
+                {filteredTranscripts.length !== activeRecord.transcripts.length && (
+                  <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                    目前顯示 {filteredTranscripts.length} 則
+                  </span>
+                )}
               </h3>
             </div>
 
@@ -504,19 +725,20 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
               <select
                 value={filterSpeaker}
                 onChange={(e) => setFilterSpeaker(e.target.value)}
-                className="px-2.5 py-1 bg-white border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                className="px-2.5 py-1 bg-white border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none cursor-pointer"
               >
-                <option value="all">所有發言角色</option>
+                <option value="all">所有發言角色 (完整顯示)</option>
                 <option value="導師">僅看 導師</option>
                 <option value="家長">僅看 家長</option>
                 <option value="學生">僅看 學生</option>
-                <option value="輔導員">僅看 輔導員</option>
+                <option value="輔導老師">僅看 輔導老師</option>
+                <option value="其他">僅看 其他</option>
               </select>
 
               <button
                 type="button"
                 onClick={() => setFilterOnlyFlagged(!filterOnlyFlagged)}
-                className={`px-2.5 py-1 rounded-md border text-xs transition-colors flex items-center gap-1 ${
+                className={`px-2.5 py-1 rounded-md border text-xs transition-colors flex items-center gap-1 cursor-pointer ${
                   filterOnlyFlagged
                     ? 'bg-amber-100 text-amber-800 border-amber-300 font-medium'
                     : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'
@@ -525,32 +747,132 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
                 <Bookmark className="w-3 h-3" />
                 <span>僅看重點標記</span>
               </button>
+
+              {(filterSpeaker !== 'all' || filterOnlyFlagged) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterSpeaker('all');
+                    setFilterOnlyFlagged(false);
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-medium flex items-center gap-1 cursor-pointer"
+                  title="解除篩選，全部呈現所有錄音對話"
+                >
+                  <Eye className="w-3 h-3" />
+                  <span>全部呈現</span>
+                </button>
+              )}
             </div>
+          </div>
+
+          {/* Filter Notice Banner if any filter is active */}
+          {(filterSpeaker !== 'all' || filterOnlyFlagged) && (
+            <div className="px-4 py-2 bg-amber-50/90 border-b border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  目前處於篩選模式（僅顯示「{filterSpeaker !== 'all' ? filterSpeaker : '全部角色'}」{filterOnlyFlagged ? '且僅重點標記' : ''}），畫面上已隱藏 {activeRecord.transcripts.length - filteredTranscripts.length} 則對話。
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterSpeaker('all');
+                  setFilterOnlyFlagged(false);
+                }}
+                className="px-2 py-0.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-semibold cursor-pointer whitespace-nowrap shadow-2xs"
+              >
+                恢復全部呈現 ({activeRecord.transcripts.length} 則)
+              </button>
+            </div>
+          )}
+
+          {/* Quick Speaker Selector Directly on Live Transcript Screen */}
+          <div className="px-4 py-2.5 bg-slate-100/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+            <div className="flex items-center flex-wrap gap-1.5">
+              <span className="text-xs font-bold text-slate-700 whitespace-nowrap flex items-center gap-1.5 mr-1">
+                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                <span>切換發言身分（即刻顯示錄音）：</span>
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {AVAILABLE_SPEAKERS.map((spk) => {
+                  const isActive = activeSpeaker === spk.value;
+                  return (
+                    <button
+                      key={spk.value}
+                      type="button"
+                      onClick={() => handleSwitchSpeaker(spk.value)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1 border shadow-2xs cursor-pointer ${
+                        isActive
+                          ? spk.activeColor
+                          : spk.inactiveClass
+                      }`}
+                      title={`點擊立即切換為「${spk.label}」並開始即時轉譯`}
+                    >
+                      <span>{spk.icon}</span>
+                      <span>{spk.label}</span>
+                      {isActive && (
+                        <span className="text-[10px] bg-white/20 px-1 py-0.2 rounded font-bold">
+                          發言中
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Quick Test Demo Button */}
+            <button
+              type="button"
+              onClick={() => handleSimulateSpeechForSpeaker(activeSpeaker)}
+              className="text-[11px] px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-md shadow-2xs flex items-center gap-1 transition-colors cursor-pointer"
+              title={`模擬一則「${activeSpeaker}」的訪談發言並立即寫入螢幕`}
+            >
+              <Wand2 className="w-3 h-3 text-purple-600" />
+              <span>測試【{activeSpeaker}】發言寫入</span>
+            </button>
           </div>
 
           {/* Transcript Feed Scrollable Area */}
           <div className="flex-1 p-5 overflow-y-auto max-h-[520px] space-y-3 bg-slate-50/40">
-            {filteredTranscripts.length === 0 && !interimText && (
+            {activeRecord.transcripts.length === 0 && !interimText && (
               <div className="h-64 flex flex-col items-center justify-center text-slate-400 text-center space-y-2">
                 <Mic className="w-10 h-10 text-slate-300 animate-pulse" />
                 <p className="text-sm font-medium">尚未開始收音或尚無轉譯文字</p>
                 <p className="text-xs text-slate-400 max-w-sm">
-                  請點擊左側「開始收音」，系統將自動捕捉家庭訪問現場發言並即時轉譯至螢幕。
+                  請點擊左側「開始收音」或上方身分切換，系統將自動捕捉家庭訪問現場發言並即時轉譯至螢幕。
                 </p>
               </div>
             )}
 
-            {filteredTranscripts.map((t) => {
-              const isTeacher = t.speaker === '導師';
-              const isParent = t.speaker === '家長';
-              const isStudent = t.speaker === '學生';
-              const isCounselor = t.speaker === '輔導員';
+            {activeRecord.transcripts.length > 0 && filteredTranscripts.length === 0 && !interimText && (
+              <div className="h-56 flex flex-col items-center justify-center text-slate-500 text-center space-y-2 bg-white rounded-xl border border-dashed border-amber-300 p-6 shadow-2xs">
+                <AlertCircle className="w-9 h-9 text-amber-500" />
+                <p className="text-sm font-bold text-slate-700">目前篩選條件下無對話紀錄</p>
+                <p className="text-xs text-slate-500 max-w-md">
+                  系統目前已完整收錄 {activeRecord.transcripts.length} 則錄音對話。請點擊下方按鈕以在螢幕上完整顯示所有發言內容。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterSpeaker('all');
+                    setFilterOnlyFlagged(false);
+                  }}
+                  className="mt-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>顯示全部 {activeRecord.transcripts.length} 則錄音內容</span>
+                </button>
+              </div>
+            )}
 
-              let badgeColor = 'bg-slate-100 text-slate-800 border-slate-300';
-              if (isTeacher) badgeColor = 'bg-blue-100 text-blue-900 border-blue-300';
-              if (isParent) badgeColor = 'bg-emerald-100 text-emerald-900 border-emerald-300';
-              if (isStudent) badgeColor = 'bg-amber-100 text-amber-900 border-amber-300';
-              if (isCounselor) badgeColor = 'bg-purple-100 text-purple-900 border-purple-300';
+            {filteredTranscripts.map((t) => {
+              const speakerObj =
+                AVAILABLE_SPEAKERS.find(
+                  (s) => s.value === t.speaker || (t.speaker === '輔導員' && s.value === '輔導老師')
+                ) || AVAILABLE_SPEAKERS[4];
+              const badgeColor = speakerObj.badgeClass;
 
               const isEditing = editingId === t.id;
 
@@ -570,15 +892,15 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
                       {/* Speaker Badge with quick switcher */}
                       <div className="relative">
                         <select
-                          value={t.speaker}
+                          value={t.speaker === '輔導員' ? '輔導老師' : t.speaker}
                           onChange={(e) => handleChangeItemSpeaker(t.id, e.target.value as SpeakerType)}
                           className={`text-xs font-semibold px-2 py-0.5 rounded-full border cursor-pointer focus:outline-none ${badgeColor}`}
                         >
-                          <option value="導師">👩‍🏫 導師</option>
-                          <option value="家長">👨‍👩‍👧 家長</option>
-                          <option value="學生">🧑‍🎓 學生</option>
-                          <option value="輔導員">🧑‍💼 輔導員</option>
-                          <option value="其他">👥 其他</option>
+                          {AVAILABLE_SPEAKERS.map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.icon} {s.label}
+                            </option>
+                          ))}
                         </select>
                       </div>
 
@@ -687,18 +1009,48 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
 
             {/* Interim Active Live Speech Bubble */}
             {interimText && (
-              <div className="p-3.5 rounded-xl border border-dashed border-blue-300 bg-blue-50/50 animate-pulse">
-                <div className="flex items-center space-x-2 mb-1">
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-200 text-blue-900">
-                    {activeSpeaker} (即時轉譯中...)
-                  </span>
-                  <span className="text-[11px] font-mono text-slate-400">
-                    {formatTimer(elapsedSeconds)}
-                  </span>
+              <div className="p-3.5 rounded-xl border-2 border-dashed border-blue-400 bg-blue-50/70 shadow-xs">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-600 text-white animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                      {activeSpeaker} (正在語音辨識...)
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {formatTimer(elapsedSeconds)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => commitTranscript(interimText)}
+                    className="text-[11px] px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
+                    title="立即將這段轉譯文字存入紀錄列表"
+                  >
+                    <Check className="w-3 h-3" />
+                    <span>立即寫入</span>
+                  </button>
                 </div>
-                <p className="text-sm text-blue-950 font-medium italic">
+                <p className="text-sm text-blue-950 font-medium leading-relaxed whitespace-pre-wrap break-words">
                   {interimText}
                 </p>
+              </div>
+            )}
+
+            {/* Active recording state hint when not speaking */}
+            {isRecording && !interimText && (
+              <div className="px-3.5 py-2.5 rounded-lg border border-dashed border-emerald-400 bg-emerald-50/80 flex items-center justify-between text-xs text-emerald-900 shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                  <span className="font-bold">
+                    已切換為「{activeSpeaker}」即時收音中
+                  </span>
+                  <span className="text-[11px] text-emerald-700 hidden sm:inline">
+                    請對準麥克風清晰說話，語音內容將即刻完整轉譯顯示於畫面上
+                  </span>
+                </div>
+                <span className="text-[11px] font-mono text-emerald-800 font-bold">
+                  {formatTimer(elapsedSeconds)}
+                </span>
               </div>
             )}
 

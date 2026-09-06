@@ -387,7 +387,7 @@ function createTranscriptParagraphs(transcripts: TranscriptItem[]): Paragraph[] 
         new TextRun({
           text: `${t.speaker}：`,
           bold: true,
-          color: t.speaker === '導師' ? '1E40AF' : t.speaker === '家長' ? '166534' : '854D0E',
+          color: t.speaker === '導師' ? '1E40AF' : t.speaker === '家長' ? '166534' : (t.speaker === '輔導老師' || t.speaker === '輔導員') ? '6B21A8' : '854D0E',
           size: 18,
           font: '微軟正黑體',
         }),

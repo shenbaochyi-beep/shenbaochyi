@@ -1,4 +1,4 @@
-export type SpeakerType = '導師' | '家長' | '學生' | '輔導員' | '其他';
+export type SpeakerType = '導師' | '家長' | '學生' | '輔導老師' | '輔導員' | '其他';
 
 export type FlagCategory = '重點' | '生活常規' | '學習狀況' | '身心情緒' | '親職管教' | '需通報' | '待追蹤';
 
