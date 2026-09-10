@@ -87,8 +87,12 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
 }) => {
   const initialParsed = parseVisitTime(visitInfo.visitTime, visitInfo.visitStartTime, visitInfo.visitEndTime);
   const normalizedAcademicYear = (!visitInfo.academicYear || visitInfo.academicYear === '114學年度') ? '115學年度' : visitInfo.academicYear;
+  const initialStudentName = visitInfo.studentName || '';
+  const initialStudentId = visitInfo.studentId || '';
   const [formData, setFormData] = useState<VisitInfo>({
     ...visitInfo,
+    studentName: initialStudentName,
+    studentId: initialStudentId,
     academicYear: normalizedAcademicYear,
     visitStartTime: initialParsed.startTime,
     visitEndTime: initialParsed.endTime,
@@ -115,6 +119,8 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
       setIsManualTimeEdit(false);
       setFormData({
         ...visitInfo,
+        studentName: visitInfo.studentName || '',
+        studentId: visitInfo.studentId || '',
         academicYear: (!visitInfo.academicYear || visitInfo.academicYear === '114學年度') ? '115學年度' : visitInfo.academicYear,
         visitStartTime: parsed.startTime,
         visitEndTime: parsed.endTime,
@@ -537,14 +543,13 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">學生姓名 *</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1">學生姓名</label>
               <input
                 type="text"
-                required
                 value={formData.studentName}
                 onChange={(e) => handleChange('studentName', e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                placeholder="陳冠宇"
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none placeholder:text-slate-400 placeholder:opacity-80"
+                placeholder="王小明"
               />
             </div>
             <div>
@@ -553,8 +558,8 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
                 type="text"
                 value={formData.studentId}
                 onChange={(e) => handleChange('studentId', e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                placeholder="15 號 / 80315"
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none placeholder:text-slate-400 placeholder:opacity-80"
+                placeholder="15號/810001"
               />
             </div>
             <div>

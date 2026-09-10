@@ -87,6 +87,8 @@ export default function App() {
                   schoolName: '國立成功商業水產職業學校',
                   academicYear: (!item.visitInfo.academicYear || item.visitInfo.academicYear === '114學年度') ? '115學年度' : item.visitInfo.academicYear,
                   className: item.visitInfo.className === '一年教班' ? '一年孝班' : item.visitInfo.className,
+                  studentName: item.visitInfo.studentName || '',
+                  studentId: item.visitInfo.studentId || '',
                   teacherName: item.visitInfo.teacherName?.includes('林書敏')
                     ? '王偉仁 老師'
                     : item.visitInfo.teacherName,

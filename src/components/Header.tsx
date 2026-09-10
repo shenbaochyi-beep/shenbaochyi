@@ -89,8 +89,8 @@ export const Header: React.FC<HeaderProps> = ({
             <span className={`w-2 h-2 rounded-full ${hasEstablishedTeacher ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
             <span className="text-xs text-slate-400">受訪學生:</span>
             <span className="text-sm font-semibold text-slate-200">
-              {hasEstablishedTeacher && activeRecord.visitInfo.studentName
-                ? `${activeRecord.visitInfo.className} ${activeRecord.visitInfo.studentName}`
+              {hasEstablishedTeacher
+                ? `${activeRecord.visitInfo.className} ${activeRecord.visitInfo.studentName || '(未填姓名)'}`
                 : '尚未建立 (點此開啟選單)'}
             </span>
             <span className="text-xs text-blue-400 underline pl-1">
