@@ -55,11 +55,11 @@ export const getMatchedClassForTeacher = (teacherName: string): string | undefin
 
 export const DEFAULT_VISIT_INFO: VisitInfo = {
   schoolName: '國立成功商業水產職業學校',
-  academicYear: '114學年度',
+  academicYear: '115學年度',
   semester: '第1學期',
   className: '一年忠班',
   studentName: '陳冠宇',
-  studentId: '114015',
+  studentId: '115015',
   studentGender: '男',
   teacherName: '王偉仁 老師',
   accompanyStaff: '張輔導組長',
@@ -73,6 +73,28 @@ export const DEFAULT_VISIT_INFO: VisitInfo = {
   attendees: '父親、母親、學生本人',
   visitPurpose: '了解開學後生活作息與課業適應、探討手機使用規範與同儕互動',
   specialNotes: '近期上課偶有打瞌睡情形，專業實習與英文科目反映較為吃力，家長期望提升自我自律能力。',
+};
+
+export const INITIAL_NEW_VISIT_INFO: VisitInfo = {
+  schoolName: '國立成功商業水產職業學校',
+  academicYear: '115學年度',
+  semester: '第1學期',
+  className: '一年忠班',
+  studentName: '',
+  studentId: '',
+  studentGender: '男',
+  teacherName: '王偉仁 老師',
+  accompanyStaff: '',
+  visitDate: new Date().toISOString().split('T')[0],
+  visitTime: '14:30 ~ 15:30',
+  visitStartTime: '14:30',
+  visitEndTime: '15:30',
+  visitDurationMinutes: 60,
+  visitType: '實體到府訪視',
+  visitLocation: '學生自宅',
+  attendees: '家長與學生本人',
+  visitPurpose: '了解開學後生活作息、課業學習適應與同儕互動情形',
+  specialNotes: '',
 };
 
 export const SAMPLE_TRANSCRIPTS_1: TranscriptItem[] = [
@@ -237,7 +259,7 @@ export const SAMPLE_RECORDS: VisitRecord[] = [
     status: '已歸檔',
     visitInfo: {
       schoolName: '國立成功商業水產職業學校',
-      academicYear: '114學年度',
+      academicYear: '115學年度',
       semester: '第1學期',
       className: '一年孝班',
       studentName: '張雅涵',

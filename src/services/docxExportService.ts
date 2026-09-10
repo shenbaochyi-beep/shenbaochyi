@@ -50,7 +50,7 @@ export async function exportVisitRecordToDocx(record: VisitRecord) {
             spacing: { after: 200 },
             children: [
               new TextRun({
-                text: `${visitInfo.academicYear || '113學年度'} ${visitInfo.semester || '第1學期'} 導師家庭訪問紀錄表`,
+                text: `${visitInfo.academicYear || '115學年度'} ${visitInfo.semester || '第1學期'} 導師家庭訪問紀錄表`,
                 bold: true,
                 size: 28, // 14pt
                 font: '標楷體',

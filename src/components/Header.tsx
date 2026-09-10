@@ -29,6 +29,7 @@ interface HeaderProps {
   onNewVisit: () => void;
   onLoadDemo: () => void;
   onOpenSetup: () => void;
+  hasEstablishedTeacher?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -42,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   onNewVisit,
   onLoadDemo,
   onOpenSetup,
+  hasEstablishedTeacher = false,
 }) => {
   const visitingTeacher = activeRecord.visitInfo.teacherName || '王偉仁 老師';
   const isVisitingTeacher =
@@ -84,15 +86,19 @@ export const Header: React.FC<HeaderProps> = ({
             className="hidden xl:flex items-center space-x-2 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-full px-3 py-1.5 cursor-pointer transition-colors"
             title="點擊修改訪視基本資料"
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className={`w-2 h-2 rounded-full ${hasEstablishedTeacher ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
             <span className="text-xs text-slate-400">受訪學生:</span>
             <span className="text-sm font-semibold text-slate-200">
-              {activeRecord.visitInfo.className} {activeRecord.visitInfo.studentName || '未指定'}
+              {hasEstablishedTeacher && activeRecord.visitInfo.studentName
+                ? `${activeRecord.visitInfo.className} ${activeRecord.visitInfo.studentName}`
+                : '尚未建立 (點此開啟選單)'}
             </span>
-            <span className="text-xs text-blue-400 underline pl-1">修改設定</span>
+            <span className="text-xs text-blue-400 underline pl-1">
+              {hasEstablishedTeacher ? '修改設定' : '前往建立'}
+            </span>
           </div>
 
-          {/* User Identity & Security Role Switcher */}
+          {/* User Identity & Security Role Switcher (Hidden until teacher is established via New Visit Setup) */}
           <div className="flex items-center space-x-2">
             {currentUser.isDeanAuthenticated ? (
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-950 to-indigo-950 border border-purple-500/60 text-xs shadow-xs">
@@ -111,8 +117,11 @@ export const Header: React.FC<HeaderProps> = ({
                   登出
                 </button>
               </div>
-            ) : (
-              <div className="flex items-center gap-1.5 bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs transition-colors">
+            ) : hasEstablishedTeacher ? (
+              <div 
+                id="header-teacher-login-box"
+                className="flex items-center gap-1.5 bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs transition-colors"
+              >
                 <User className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
                 <span className="text-slate-400 text-[11px] hidden md:inline">登入導師:</span>
                 <select
@@ -131,7 +140,7 @@ export const Header: React.FC<HeaderProps> = ({
                   ))}
                 </select>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Quick Actions */}

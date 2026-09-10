@@ -412,7 +412,7 @@ ${(summary?.crossOfficeReferrals || []).join('、 ') || '無'}
               {visitInfo.schoolName || '國立成功商業水產職業學校'}
             </h1>
             <h2 className="text-lg font-bold tracking-wide font-serif text-slate-800">
-              {visitInfo.academicYear || '114學年度'} {visitInfo.semester || '第1學期'} 學務處導師家庭訪問紀錄表
+              {visitInfo.academicYear || '115學年度'} {visitInfo.semester || '第1學期'} 學務處導師家庭訪問紀錄表
             </h2>
           </div>
           <div className="w-16 flex-shrink-0 hidden sm:block text-right">

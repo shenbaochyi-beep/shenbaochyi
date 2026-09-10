@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, Save, School, User, Calendar, MapPin, Target, Sparkles, Check, 
   Upload, RefreshCw, Clock, Timer, ArrowRight, Image as ImageIcon,
-  Lock, ShieldAlert, ShieldCheck 
+  Lock, ShieldAlert, ShieldCheck, UserCheck 
 } from 'lucide-react';
 import { VisitInfo, VisitType, CurrentUser } from '../types';
 import { 
@@ -32,6 +32,7 @@ interface VisitSetupModalProps {
   onUpdateCustomLogo?: (url: string | null) => void;
   currentUser?: CurrentUser;
   onDeanLogin?: (account: string) => boolean;
+  hasEstablishedTeacher?: boolean;
 }
 
 const TEMPLATES = [
@@ -82,10 +83,13 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
   onUpdateCustomLogo,
   currentUser,
   onDeanLogin,
+  hasEstablishedTeacher = false,
 }) => {
   const initialParsed = parseVisitTime(visitInfo.visitTime, visitInfo.visitStartTime, visitInfo.visitEndTime);
+  const normalizedAcademicYear = (!visitInfo.academicYear || visitInfo.academicYear === '114學年度') ? '115學年度' : visitInfo.academicYear;
   const [formData, setFormData] = useState<VisitInfo>({
     ...visitInfo,
+    academicYear: normalizedAcademicYear,
     visitStartTime: initialParsed.startTime,
     visitEndTime: initialParsed.endTime,
     visitDurationMinutes: initialParsed.durationMinutes,
@@ -111,6 +115,7 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
       setIsManualTimeEdit(false);
       setFormData({
         ...visitInfo,
+        academicYear: (!visitInfo.academicYear || visitInfo.academicYear === '114學年度') ? '115學年度' : visitInfo.academicYear,
         visitStartTime: parsed.startTime,
         visitEndTime: parsed.endTime,
         visitDurationMinutes: parsed.durationMinutes,
@@ -298,7 +303,16 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <School className="w-5 h-5 text-blue-400" />
-            <h2 className="text-lg font-bold">家庭訪問基本資料設定</h2>
+            <div>
+              <h2 className="text-lg font-bold">
+                {!hasEstablishedTeacher ? '新建家庭訪問選單（設定訪視導師與基本資料）' : '家庭訪問基本資料設定'}
+              </h2>
+              {!hasEstablishedTeacher && (
+                <p className="text-xs text-blue-300 font-normal">
+                  請先建立本次訪視導師與學生資料，建立完成後將自動登入該導師身分
+                </p>
+              )}
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -478,13 +492,17 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
                 onChange={(e) => handleChange('academicYear', e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white"
               >
-                <option value="114學年度">114學年度</option>
                 <option value="115學年度">115學年度</option>
                 <option value="116學年度">116學年度</option>
                 <option value="117學年度">117學年度</option>
                 <option value="118學年度">118學年度</option>
                 <option value="119學年度">119學年度</option>
                 <option value="120學年度">120學年度</option>
+                <option value="121學年度">121學年度</option>
+                <option value="122學年度">122學年度</option>
+                <option value="123學年度">123學年度</option>
+                <option value="124學年度">124學年度</option>
+                <option value="125學年度">125學年度</option>
               </select>
             </div>
             <div>
@@ -556,7 +574,14 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
           {/* Row 3: Teacher & Accompany */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">訪視導師 (選單) *</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
+                <span>訪視導師 (選單) *</span>
+                {!hasEstablishedTeacher && (
+                  <span className="text-[11px] text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.5 rounded">
+                    ★ 建立後將以此身分登入系統
+                  </span>
+                )}
+              </label>
               <select
                 required
                 value={formData.teacherName}
@@ -830,8 +855,17 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
               type="submit"
               className="px-5 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-sm transition-colors flex items-center gap-1.5"
             >
-              <Save className="w-4 h-4" />
-              儲存並套用
+              {!hasEstablishedTeacher ? (
+                <>
+                  <UserCheck className="w-4 h-4" />
+                  <span>完成建立並登入導師</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>儲存並套用</span>
+                </>
+              )}
             </button>
           </div>
         </form>

@@ -6,7 +6,14 @@ import { DocumentPreview } from './components/DocumentPreview';
 import { ArchiveView } from './components/ArchiveView';
 import { VisitSetupModal } from './components/VisitSetupModal';
 import { VisitRecord, VisitInfo, VisitSummary, TranscriptItem, CurrentUser } from './types';
-import { DEFAULT_VISIT_INFO, SAMPLE_RECORDS, SAMPLE_SUMMARY_1, SAMPLE_TRANSCRIPTS_1 } from './utils/sampleData';
+import { 
+  DEFAULT_VISIT_INFO, 
+  INITIAL_NEW_VISIT_INFO, 
+  SAMPLE_RECORDS, 
+  SAMPLE_SUMMARY_1, 
+  SAMPLE_TRANSCRIPTS_1,
+  getMatchedClassForTeacher 
+} from './utils/sampleData';
 import { getInitialCurrentUser, saveCurrentUser, DEAN_CREDENTIALS, DEAN_USER, DEFAULT_TEACHER_USER } from './utils/auth';
 import { safeFetchJson, generateLocalFallbackSummary } from './utils/apiUtils';
 
@@ -39,18 +46,46 @@ export default function App() {
     }
   };
 
+  // Check if teacher has been established via New Visit Setup in this session
+  const [hasEstablishedTeacher, setHasEstablishedTeacher] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('has_established_teacher_v1') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   // Load saved records or defaults
   const [records, setRecords] = useState<VisitRecord[]>(() => {
+    const isTeacherEstablished = (() => {
+      try {
+        return sessionStorage.getItem('has_established_teacher_v1') === 'true';
+      } catch {
+        return false;
+      }
+    })();
+
+    const initialNewRecord: VisitRecord = {
+      id: 'rec-init-new',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: '進行中',
+      visitInfo: INITIAL_NEW_VISIT_INFO,
+      transcripts: [],
+      audioDurationSeconds: 0,
+    };
+
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((item: VisitRecord) => {
+          const loaded = parsed.map((item: VisitRecord) => {
             const updatedInfo = item.visitInfo
               ? {
                   ...item.visitInfo,
                   schoolName: '國立成功商業水產職業學校',
+                  academicYear: (!item.visitInfo.academicYear || item.visitInfo.academicYear === '114學年度') ? '115學年度' : item.visitInfo.academicYear,
                   className: item.visitInfo.className === '一年教班' ? '一年孝班' : item.visitInfo.className,
                   teacherName: item.visitInfo.teacherName?.includes('林書敏')
                     ? '王偉仁 老師'
@@ -62,21 +97,36 @@ export default function App() {
               visitInfo: updatedInfo,
             };
           });
+
+          if (!isTeacherEstablished) {
+            return [initialNewRecord, ...loaded.filter((r) => r.id !== 'rec-init-new')];
+          }
+          return loaded;
         }
       }
     } catch (e) {
       console.warn('Failed to parse saved records from localStorage:', e);
+    }
+
+    if (!isTeacherEstablished) {
+      return [initialNewRecord, ...SAMPLE_RECORDS];
     }
     return SAMPLE_RECORDS;
   });
 
   // Current active visit record
   const [activeRecordId, setActiveRecordId] = useState<string>(() => {
-    return records[0]?.id || 'rec-initial-01';
+    return records[0]?.id || 'rec-init-new';
   });
 
   const [currentTab, setCurrentTab] = useState<'record' | 'summary' | 'preview' | 'archive'>('record');
-  const [isSetupModalOpen, setIsSetupModalOpen] = useState(false);
+  const [isSetupModalOpen, setIsSetupModalOpen] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('has_established_teacher_v1') !== 'true';
+    } catch {
+      return true;
+    }
+  });
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -178,7 +228,15 @@ export default function App() {
 
   const handleSaveVisitInfo = (visitInfo: VisitInfo) => {
     updateActiveRecord({ visitInfo });
-    showToast('訪視基本資料已更新', 'success');
+    const teacherName = visitInfo.teacherName || '王偉仁 老師';
+    handleSwitchTeacher(teacherName);
+    setHasEstablishedTeacher(true);
+    try {
+      sessionStorage.setItem('has_established_teacher_v1', 'true');
+    } catch (e) {
+      // ignore
+    }
+    showToast(`🎉 已成功建立家訪基本資料！目前登入導師為【${teacherName}】`, 'success');
   };
 
   // Generate AI Summary using Express / Gemini API
@@ -253,17 +311,21 @@ export default function App() {
 
   const handleNewVisit = () => {
     const newId = `rec-${Date.now()}`;
+    const currentTeacher = currentUser.name || activeRecord.visitInfo.teacherName || '王偉仁 老師';
+    const currentClass = getMatchedClassForTeacher(currentTeacher) || '一年忠班';
     const newRecord: VisitRecord = {
       id: newId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: '進行中',
       visitInfo: {
-        ...DEFAULT_VISIT_INFO,
+        ...INITIAL_NEW_VISIT_INFO,
+        academicYear: '115學年度',
+        teacherName: currentTeacher,
+        className: currentClass,
         studentName: '',
         studentId: '',
         visitDate: new Date().toISOString().split('T')[0],
-        visitPurpose: '了解開學後生活常規與課業學習情形',
       },
       transcripts: [],
       audioDurationSeconds: 0,
@@ -273,7 +335,7 @@ export default function App() {
     setActiveRecordId(newId);
     setCurrentTab('record');
     setIsSetupModalOpen(true);
-    showToast('已建立新家庭訪問紀錄，請填寫基本資料', 'info');
+    showToast('已開啟新建家訪選單，請填寫導師與基本資料', 'info');
   };
 
   const handleLoadDemo = () => {
@@ -296,7 +358,15 @@ export default function App() {
     setRecords((prev) => [demoRecord, ...prev]);
     setActiveRecordId(demoId);
     setCurrentTab('record');
-    showToast('已載入示範訪視對話與 AI 摘要紀錄', 'success');
+    setHasEstablishedTeacher(true);
+    try {
+      sessionStorage.setItem('has_established_teacher_v1', 'true');
+    } catch (e) {
+      // ignore
+    }
+    const demoTeacher = demoRecord.visitInfo.teacherName || '王偉仁 老師';
+    handleSwitchTeacher(demoTeacher);
+    showToast(`已載入示範訪視對話與 AI 摘要紀錄，登入導師為【${demoTeacher}】`, 'success');
   };
 
   const handleDeleteRecord = (id: string) => {
@@ -335,6 +405,7 @@ export default function App() {
         onNewVisit={handleNewVisit}
         onLoadDemo={handleLoadDemo}
         onOpenSetup={() => setIsSetupModalOpen(true)}
+        hasEstablishedTeacher={hasEstablishedTeacher}
       />
 
       {/* Main View Area */}
@@ -345,6 +416,7 @@ export default function App() {
             onUpdateTranscripts={handleUpdateTranscripts}
             onEndAndSummarize={handleEndAndSummarize}
             onOpenSetup={() => setIsSetupModalOpen(true)}
+            hasEstablishedTeacher={hasEstablishedTeacher}
           />
         )}
 
@@ -394,6 +466,7 @@ export default function App() {
         onUpdateCustomLogo={handleUpdateCustomLogo}
         currentUser={currentUser}
         onDeanLogin={handleDeanLogin}
+        hasEstablishedTeacher={hasEstablishedTeacher}
       />
 
       {/* Toast Notification */}

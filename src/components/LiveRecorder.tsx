@@ -34,6 +34,7 @@ interface LiveRecorderProps {
   onUpdateTranscripts: (transcripts: TranscriptItem[]) => void;
   onEndAndSummarize: () => void;
   onOpenSetup: () => void;
+  hasEstablishedTeacher?: boolean;
 }
 
 const FLAG_CATEGORIES: { label: string; value: FlagCategory; color: string }[] = [
@@ -101,6 +102,7 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
   onUpdateTranscripts,
   onEndAndSummarize,
   onOpenSetup,
+  hasEstablishedTeacher = false,
 }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [activeSpeaker, setActiveSpeaker] = useState<SpeakerType>('導師');
@@ -499,6 +501,31 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      {/* Initial Setup Prompt Banner (Shown if user closes the setup modal before establishing teacher) */}
+      {!hasEstablishedTeacher && (
+        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-sky-50 border-2 border-blue-300 rounded-xl p-5 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-xs">
+              <User className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                尚未建立家訪導師資料
+              </h3>
+              <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                本系統程式初始狀態需先透過<strong>「新建家訪選單」</strong>設定訪視導師與受訪學生，建立完成後將自動登入該導師身分並顯示於頂部。
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onOpenSetup}
+            className="w-full md:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5 flex-shrink-0"
+          >
+            <span>開啟新建家訪選單</span>
+          </button>
+        </div>
+      )}
+
       {/* Top Banner: Visit Status & Active Student Overview */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 sm:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -509,11 +536,20 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
             <span className="text-xs text-slate-500 font-medium">
               {activeRecord.visitInfo.visitDate} ({activeRecord.visitInfo.visitTime})
             </span>
+            {!hasEstablishedTeacher && (
+              <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-semibold">
+                導師未建立
+              </span>
+            )}
           </div>
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <span>{activeRecord.visitInfo.className} {activeRecord.visitInfo.studentName}</span>
+            <span>
+              {hasEstablishedTeacher && activeRecord.visitInfo.studentName
+                ? `${activeRecord.visitInfo.className} ${activeRecord.visitInfo.studentName}`
+                : '尚未建立訪視對象'}
+            </span>
             <span className="text-sm font-normal text-slate-500">
-              (座號: {activeRecord.visitInfo.studentId || '—'} / 導師: {activeRecord.visitInfo.teacherName})
+              (座號: {activeRecord.visitInfo.studentId || '—'} / 導師: {hasEstablishedTeacher ? activeRecord.visitInfo.teacherName : '未設定'})
             </span>
           </h2>
           <p className="text-xs text-slate-600 mt-0.5 line-clamp-1">
@@ -525,9 +561,9 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
         <div className="flex items-center gap-3">
           <button
             onClick={onOpenSetup}
-            className="text-xs px-3 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg transition-colors"
+            className="text-xs px-3 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg transition-colors font-medium"
           >
-            編輯訪視資訊
+            {hasEstablishedTeacher ? '編輯訪視資訊' : '新建家訪選單'}
           </button>
 
           <button

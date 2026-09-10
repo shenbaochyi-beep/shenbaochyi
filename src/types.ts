@@ -28,7 +28,7 @@ export interface ActionItem {
 
 export interface VisitInfo {
   schoolName: string; // 學校名稱 (e.g. 國立臺灣示範高級中學 / 市立示範國民中學)
-  academicYear: string; // 學年度 (e.g. 113學年度)
+  academicYear: string; // 學年度 (e.g. 115學年度)
   semester: string; // 學期 (e.g. 第1學期 / 第2學期)
   className: string; // 班級 (e.g. 八年三班 / 高一忠班)
   studentName: string; // 學生姓名
