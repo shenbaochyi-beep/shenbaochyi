@@ -24,6 +24,7 @@ import {
   Download,
   RefreshCw,
   Eye,
+  Lock,
 } from 'lucide-react';
 import { TranscriptItem, SpeakerType, FlagCategory, VisitRecord } from '../types';
 import { speechService } from '../services/speechService';
@@ -245,6 +246,10 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
   }, [isRecording, commitTranscript]);
 
   const handleStartRecording = async () => {
+    if (!hasEstablishedTeacher) {
+      onOpenSetup();
+      return;
+    }
     setMicError(null);
     // Ensure all dialogue is visible on the screen during recording
     setFilterSpeaker('all');
@@ -288,6 +293,10 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
 
   const handleAddManualEntry = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasEstablishedTeacher) {
+      onOpenSetup();
+      return;
+    }
     if (!manualInput.trim()) return;
     commitTranscript(manualInput.trim(), activeSpeaker);
     setManualInput('');
@@ -340,6 +349,10 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
 
   // Instant speaker switch handler: flushes previous speech immediately, sets new role, and guarantees active recording
   const handleSwitchSpeaker = async (newSpeaker: SpeakerType) => {
+    if (!hasEstablishedTeacher) {
+      onOpenSetup();
+      return;
+    }
     // 1. Immediately commit any pending recognized text under previous speaker so nothing is lost
     if (interimTextRef.current.trim()) {
       commitTranscript(interimTextRef.current.trim(), activeSpeakerRef.current);
@@ -368,6 +381,10 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
 
   // Quick Speech Simulator by speaker (for instant testing of any role on screen)
   const handleSimulateSpeechForSpeaker = (speaker: SpeakerType) => {
+    if (!hasEstablishedTeacher) {
+      onOpenSetup();
+      return;
+    }
     const rolePhrases: Record<string, { text: string; flag?: FlagCategory }[]> = {
       '導師': [
         { text: '家長您好，今天特別跟您交流孩子在學校的作息與學習情況。' },
@@ -424,6 +441,10 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
 
   // Audio File Upload handler
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!hasEstablishedTeacher) {
+      onOpenSetup();
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -478,6 +499,10 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
   };
 
   const handleDownloadAudio = () => {
+    if (!hasEstablishedTeacher) {
+      onOpenSetup();
+      return;
+    }
     const blob = speechService.getRecordedBlob();
     if (!blob || blob.size === 0) {
       alert('目前尚未產生足夠的錄音暫存檔，請先點擊「開始收音」進行錄音。');
@@ -503,24 +528,26 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* Initial Setup Prompt Banner (Shown if user closes the setup modal before establishing teacher) */}
       {!hasEstablishedTeacher && (
-        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-sky-50 border-2 border-blue-300 rounded-xl p-5 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-2 border-amber-300 rounded-xl p-5 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
-            <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-xs">
-              <User className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-full bg-amber-600 text-white flex items-center justify-center flex-shrink-0 shadow-xs">
+              <Lock className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                尚未建立家訪導師資料
+              <h3 className="text-sm font-bold text-amber-950 flex items-center gap-1.5">
+                <span>尚未建立新家庭訪問選單（開始收音等相關功能已關閉）</span>
               </h3>
-              <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
-                本系統程式初始狀態需先透過<strong>「新建家訪選單」</strong>設定訪視導師與受訪學生，建立完成後將自動登入該導師身分並顯示於頂部。
+              <p className="text-xs text-amber-900 mt-0.5 leading-relaxed">
+                依系統規範，在尚未建立新家庭訪問選單前，已關閉麥克風即時收音、發言角色切換、語音模擬及訪談紀錄輸入等功能。請先點擊右側按鈕建立本次家庭訪問基本資料以正式啟用。
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onOpenSetup}
-            className="w-full md:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5 flex-shrink-0"
+            className="w-full md:w-auto px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center justify-center gap-1.5 flex-shrink-0 cursor-pointer"
           >
+            <RefreshCw className="w-3.5 h-3.5" />
             <span>開啟新建家訪選單</span>
           </button>
         </div>
@@ -537,8 +564,9 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
               {activeRecord.visitInfo.visitDate} ({activeRecord.visitInfo.visitTime})
             </span>
             {!hasEstablishedTeacher && (
-              <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-semibold">
-                導師未建立
+              <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-semibold flex items-center gap-1">
+                <Lock className="w-3 h-3 text-amber-600" />
+                <span>尚未建立選單 (功能鎖定)</span>
               </span>
             )}
           </div>
@@ -560,21 +588,31 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
         {/* Action button to finish and summarize */}
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={onOpenSetup}
-            className="text-xs px-3 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg transition-colors font-medium"
+            className="text-xs px-3 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg transition-colors font-medium flex items-center gap-1 cursor-pointer"
           >
-            {hasEstablishedTeacher ? '編輯訪視資訊' : '新建家訪選單'}
+            <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+            <span>{hasEstablishedTeacher ? '編輯訪視資訊' : '新建家訪選單'}</span>
           </button>
 
           <button
             id="btn-end-and-summarize"
+            type="button"
             onClick={onEndAndSummarize}
-            disabled={activeRecord.transcripts.length === 0}
+            disabled={!hasEstablishedTeacher || activeRecord.transcripts.length === 0}
             className={`px-4 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all ${
-              activeRecord.transcripts.length > 0
-                ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+              hasEstablishedTeacher && activeRecord.transcripts.length > 0
+                ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20 cursor-pointer'
                 : 'bg-slate-200 text-slate-400 cursor-not-allowed'
             }`}
+            title={
+              !hasEstablishedTeacher
+                ? '尚未建立新家庭訪問選單，請先完成基本資料設定'
+                : activeRecord.transcripts.length === 0
+                ? '目前尚無對話紀錄'
+                : '結束訪談並生成 AI 重點摘要'
+            }
           >
             <Sparkles className="w-4 h-4 text-amber-300" />
             <span>結束訪談並生成 AI 重點摘要</span>
@@ -605,14 +643,31 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
             <div className="flex flex-col items-center justify-center py-3">
               <button
                 id="btn-toggle-mic"
-                onClick={isRecording ? handleStopRecording : handleStartRecording}
+                type="button"
+                onClick={!hasEstablishedTeacher ? onOpenSetup : (isRecording ? handleStopRecording : handleStartRecording)}
                 className={`relative group w-24 h-24 rounded-full flex flex-col items-center justify-center transition-all duration-300 ${
-                  isRecording
-                    ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30 scale-105'
-                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20'
+                  !hasEstablishedTeacher
+                    ? 'bg-slate-100 border-2 border-dashed border-slate-300 text-slate-400 hover:border-amber-400 hover:text-amber-700 hover:bg-amber-50 cursor-pointer shadow-none'
+                    : isRecording
+                    ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30 scale-105 cursor-pointer'
+                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 cursor-pointer'
                 }`}
+                title={
+                  !hasEstablishedTeacher
+                    ? '尚未建立新家庭訪問選單，收音功能已關閉（點此開啟新建選單）'
+                    : isRecording
+                    ? '暫停即時收音'
+                    : '開始麥克風即時收音'
+                }
               >
-                {isRecording ? (
+                {!hasEstablishedTeacher ? (
+                  <>
+                    <Lock className="w-8 h-8 text-slate-400 group-hover:text-amber-600 mb-0.5 transition-colors" />
+                    <span className="text-[11px] font-semibold text-slate-500 group-hover:text-amber-700 tracking-tight transition-colors">
+                      收音已關閉
+                    </span>
+                  </>
+                ) : isRecording ? (
                   <>
                     <span className="absolute inset-0 rounded-full bg-rose-500 animate-ping opacity-30"></span>
                     <Square className="w-8 h-8 fill-current mb-0.5" />
@@ -628,7 +683,17 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
 
               {/* Status text & wave animation */}
               <div className="mt-3 text-center">
-                {isRecording ? (
+                {!hasEstablishedTeacher ? (
+                  <div className="space-y-1">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                      <Lock className="w-3 h-3 text-amber-600" />
+                      收音功能已關閉（待建立選單）
+                    </span>
+                    <p className="text-[11px] text-slate-400">
+                      點擊上方按鈕建立家訪選單後即可啟用
+                    </p>
+                  </div>
+                ) : isRecording ? (
                   <div className="flex items-center gap-2 text-rose-600 font-medium text-xs">
                     <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>
                     <span>正在進行麥克風收音與即時轉譯...</span>
@@ -666,9 +731,17 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
 
             {/* Active Speaker Switcher (Crucial for home visit roles) */}
             <div className="space-y-2 pt-2 border-t border-slate-100">
-              <label className="block text-xs font-semibold text-slate-700">
-                切換發言身分（即刻顯示錄音）：
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-slate-700">
+                  切換發言身分（即刻顯示錄音）：
+                </label>
+                {!hasEstablishedTeacher && (
+                  <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded font-medium flex items-center gap-0.5">
+                    <Lock className="w-2.5 h-2.5" />
+                    未建立選單
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 {AVAILABLE_SPEAKERS.map((spk) => {
                   const isActive = activeSpeaker === spk.value;
@@ -676,19 +749,26 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
                     <button
                       key={spk.value}
                       type="button"
+                      disabled={!hasEstablishedTeacher}
                       onClick={() => handleSwitchSpeaker(spk.value)}
-                      className={`px-3 py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-between border cursor-pointer ${
-                        isActive
-                          ? spk.activeColor
-                          : spk.inactiveClass
+                      className={`px-3 py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-between border ${
+                        !hasEstablishedTeacher
+                          ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+                          : isActive
+                          ? spk.activeColor + ' cursor-pointer'
+                          : spk.inactiveClass + ' cursor-pointer'
                       }`}
-                      title={`切換為「${spk.label}」並立即進行語音收音`}
+                      title={
+                        !hasEstablishedTeacher
+                          ? '尚未建立新家庭訪問選單，切換身分已關閉'
+                          : `切換為「${spk.label}」並立即進行語音收音`
+                      }
                     >
                       <span className="flex items-center gap-1.5">
                         <span>{spk.icon}</span>
                         <span>{spk.label}</span>
                       </span>
-                      {isActive && <Check className="w-3.5 h-3.5" />}
+                      {isActive && hasEstablishedTeacher && <Check className="w-3.5 h-3.5" />}
                     </button>
                   );
                 })}
@@ -703,32 +783,46 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
+                  disabled={!hasEstablishedTeacher}
                   onClick={handleSimulateSpeech}
-                  className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
-                  title="模擬訪談對話語句"
+                  className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                  title={!hasEstablishedTeacher ? '尚未建立新家庭訪問選單，模擬輸入已關閉' : '模擬訪談對話語句'}
                 >
-                  <Wand2 className="w-3 h-3 text-purple-600" />
+                  {!hasEstablishedTeacher ? <Lock className="w-3 h-3 text-slate-400" /> : <Wand2 className="w-3 h-3 text-purple-600" />}
                   <span>模擬單句輸入</span>
                 </button>
 
-                <label className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 transition-colors cursor-pointer flex items-center gap-1">
-                  <Upload className="w-3 h-3 text-blue-600" />
+                <label className={`text-xs px-2.5 py-1.5 rounded-md border border-slate-200 transition-colors flex items-center gap-1 ${
+                  !hasEstablishedTeacher || isUploadingAudio
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer'
+                }`}
+                title={!hasEstablishedTeacher ? '尚未建立新家庭訪問選單，匯入音訊已關閉' : '匯入音訊檔轉譯'}
+                >
+                  {!hasEstablishedTeacher ? <Lock className="w-3 h-3 text-slate-400" /> : <Upload className="w-3 h-3 text-blue-600" />}
                   <span>{isUploadingAudio ? '轉譯中...' : '匯入錄音檔'}</span>
                   <input
                     ref={fileInputRef}
                     type="file"
                     accept="audio/*"
                     onChange={handleAudioUpload}
-                    disabled={isUploadingAudio}
+                    disabled={!hasEstablishedTeacher || isUploadingAudio}
                     className="hidden"
                   />
                 </label>
 
                 <button
                   type="button"
+                  disabled={!hasEstablishedTeacher || activeRecord.transcripts.length === 0}
                   onClick={handleDownloadAudio}
-                  className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
-                  title="下載本次訪談錄製之音訊檔 (WebM 格式)"
+                  className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                  title={
+                    !hasEstablishedTeacher
+                      ? '尚未建立新家庭訪問選單，下載備份已關閉'
+                      : activeRecord.transcripts.length === 0
+                      ? '尚無錄音對話'
+                      : '下載本次訪談錄製之音訊檔 (WebM 格式)'
+                  }
                 >
                   <Download className="w-3 h-3 text-emerald-600" />
                   <span>下載錄音備份</span>
@@ -831,7 +925,7 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
           <div className="px-4 py-2.5 bg-slate-100/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
             <div className="flex items-center flex-wrap gap-1.5">
               <span className="text-xs font-bold text-slate-700 whitespace-nowrap flex items-center gap-1.5 mr-1">
-                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                <span className={`w-2 h-2 rounded-full ${hasEstablishedTeacher ? 'bg-blue-600 animate-pulse' : 'bg-slate-400'}`}></span>
                 <span>切換發言身分（即刻顯示錄音）：</span>
               </span>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -841,17 +935,24 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
                     <button
                       key={spk.value}
                       type="button"
+                      disabled={!hasEstablishedTeacher}
                       onClick={() => handleSwitchSpeaker(spk.value)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1 border shadow-2xs cursor-pointer ${
-                        isActive
-                          ? spk.activeColor
-                          : spk.inactiveClass
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1 border shadow-2xs ${
+                        !hasEstablishedTeacher
+                          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+                          : isActive
+                          ? spk.activeColor + ' cursor-pointer'
+                          : spk.inactiveClass + ' cursor-pointer'
                       }`}
-                      title={`點擊立即切換為「${spk.label}」並開始即時轉譯`}
+                      title={
+                        !hasEstablishedTeacher
+                          ? '尚未建立新家庭訪問選單，切換功能已關閉'
+                          : `點擊立即切換為「${spk.label}」並開始即時轉譯`
+                      }
                     >
                       <span>{spk.icon}</span>
                       <span>{spk.label}</span>
-                      {isActive && (
+                      {isActive && hasEstablishedTeacher && (
                         <span className="text-[10px] bg-white/20 px-1 py-0.2 rounded font-bold">
                           發言中
                         </span>
@@ -865,11 +966,16 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
             {/* Quick Test Demo Button */}
             <button
               type="button"
+              disabled={!hasEstablishedTeacher}
               onClick={() => handleSimulateSpeechForSpeaker(activeSpeaker)}
-              className="text-[11px] px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-md shadow-2xs flex items-center gap-1 transition-colors cursor-pointer"
-              title={`模擬一則「${activeSpeaker}」的訪談發言並立即寫入螢幕`}
+              className="text-[11px] px-2.5 py-1 bg-white hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-700 border border-slate-300 rounded-md shadow-2xs flex items-center gap-1 transition-colors cursor-pointer"
+              title={
+                !hasEstablishedTeacher
+                  ? '尚未建立新家庭訪問選單，測試功能已關閉'
+                  : `模擬一則「${activeSpeaker}」的訪談發言並立即寫入螢幕`
+              }
             >
-              <Wand2 className="w-3 h-3 text-purple-600" />
+              {!hasEstablishedTeacher ? <Lock className="w-3 h-3 text-slate-400" /> : <Wand2 className="w-3 h-3 text-purple-600" />}
               <span>測試【{activeSpeaker}】發言寫入</span>
             </button>
           </div>
@@ -877,13 +983,35 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
           {/* Transcript Feed Scrollable Area */}
           <div className="flex-1 p-5 overflow-y-auto max-h-[520px] space-y-3 bg-slate-50/40">
             {activeRecord.transcripts.length === 0 && !interimText && (
-              <div className="h-64 flex flex-col items-center justify-center text-slate-400 text-center space-y-2">
-                <Mic className="w-10 h-10 text-slate-300 animate-pulse" />
-                <p className="text-sm font-medium">尚未開始收音或尚無轉譯文字</p>
-                <p className="text-xs text-slate-400 max-w-sm">
-                  請點擊左側「開始收音」或上方身分切換，系統將自動捕捉家庭訪問現場發言並即時轉譯至螢幕。
-                </p>
-              </div>
+              !hasEstablishedTeacher ? (
+                <div className="h-64 flex flex-col items-center justify-center text-slate-500 text-center space-y-3 p-6 bg-white/60 rounded-xl border border-dashed border-amber-300">
+                  <div className="w-14 h-14 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shadow-2xs">
+                    <Lock className="w-7 h-7" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-slate-800">尚未建立新家庭訪問選單</p>
+                    <p className="text-xs text-slate-500 max-w-sm leading-relaxed">
+                      本系統在尚未建立新家庭訪問選單前，已關閉開始收音、即時語音轉譯及訪談紀錄輸入等功能。請點擊下方按鈕設定基本資料以啟用。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onOpenSetup}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>開啟新建家訪選單</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="h-64 flex flex-col items-center justify-center text-slate-400 text-center space-y-2">
+                  <Mic className="w-10 h-10 text-slate-300 animate-pulse" />
+                  <p className="text-sm font-medium">尚未開始收音或尚無轉譯文字</p>
+                  <p className="text-xs text-slate-400 max-w-sm">
+                    請點擊左側「開始收音」或上方身分切換，系統將自動捕捉家庭訪問現場發言並即時轉譯至螢幕。
+                  </p>
+                </div>
+              )
             )}
 
             {activeRecord.transcripts.length > 0 && filteredTranscripts.length === 0 && !interimText && (
@@ -1100,22 +1228,29 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
           {/* Bottom Manual Fast Input Bar */}
           <div className="p-3 bg-white border-t border-slate-200">
             <form onSubmit={handleAddManualEntry} className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-600 whitespace-nowrap pl-1">
-                以「{activeSpeaker}」手動記錄：
+              <span className="text-xs font-semibold text-slate-600 whitespace-nowrap pl-1 flex items-center gap-1">
+                {!hasEstablishedTeacher && <Lock className="w-3.5 h-3.5 text-amber-600" />}
+                <span>以「{activeSpeaker}」手動記錄：</span>
               </span>
               <input
                 type="text"
                 value={manualInput}
                 onChange={(e) => setManualInput(e.target.value)}
-                placeholder="輸入重點補充或手動記錄訪談內容，按 Enter 送出..."
-                className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!hasEstablishedTeacher}
+                placeholder={
+                  !hasEstablishedTeacher
+                    ? '尚未建立新家庭訪問選單，請先完成基本資料設定以啟用記錄...'
+                    : '輸入重點補充或手動記錄訪談內容，按 Enter 送出...'
+                }
+                className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
               />
               <button
                 type="submit"
-                disabled={!manualInput.trim()}
-                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
+                disabled={!hasEstablishedTeacher || !manualInput.trim()}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                title={!hasEstablishedTeacher ? '請先建立新家庭訪問選單' : '加入手動紀錄'}
               >
-                <Plus className="w-3.5 h-3.5" />
+                {!hasEstablishedTeacher ? <Lock className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
                 <span>加入</span>
               </button>
             </form>

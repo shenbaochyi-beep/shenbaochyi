@@ -336,6 +336,12 @@ export default function App() {
     setRecords((prev) => [newRecord, ...prev]);
     setActiveRecordId(newId);
     setCurrentTab('record');
+    setHasEstablishedTeacher(false);
+    try {
+      sessionStorage.removeItem('has_established_teacher_v1');
+    } catch (e) {
+      // ignore
+    }
     setIsSetupModalOpen(true);
     showToast('已開啟新建家訪選單，請填寫導師與基本資料', 'info');
   };
@@ -386,6 +392,14 @@ export default function App() {
 
   const handleSelectRecord = (record: VisitRecord) => {
     setActiveRecordId(record.id);
+    if (record.id !== 'rec-init-new' && (record.transcripts.length > 0 || record.summary || record.visitInfo.teacherName)) {
+      setHasEstablishedTeacher(true);
+      try {
+        sessionStorage.setItem('has_established_teacher_v1', 'true');
+      } catch (e) {
+        // ignore
+      }
+    }
     if (record.summary) {
       setCurrentTab('preview');
     } else {
