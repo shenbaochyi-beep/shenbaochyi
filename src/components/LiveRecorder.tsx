@@ -25,10 +25,20 @@ import {
   RefreshCw,
   Eye,
   Lock,
+  Zap,
+  CheckCircle2,
+  FileText,
+  Table,
+  Unlock,
 } from 'lucide-react';
 import { TranscriptItem, SpeakerType, FlagCategory, VisitRecord } from '../types';
 import { speechService } from '../services/speechService';
 import { safeFetchJson } from '../utils/apiUtils';
+import { detectSpeaker } from '../services/speakerDetectionService';
+import {
+  downloadAllTranscriptsAsTxt,
+  downloadAllTranscriptsAsCsv,
+} from '../services/transcriptExportService';
 
 interface LiveRecorderProps {
   activeRecord: VisitRecord;
@@ -119,9 +129,31 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
 
+  // Dual-Track Concurrent Recognition State (手動切換身分優先 + 語音自動辨識換人同步進行)
+  const [isManualLocked, setIsManualLocked] = useState(false);
+  const [manualLockedSpeaker, setManualLockedSpeaker] = useState<SpeakerType | null>(null);
+  const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
+  const [autoDetectedInfo, setAutoDetectedInfo] = useState<{
+    speaker: SpeakerType;
+    reason: string;
+    timestamp: number;
+  } | null>(null);
+  const [downloadSuccessMessage, setDownloadSuccessMessage] = useState<string | null>(null);
+
   const transcriptsEndRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const latestPitchRef = useRef<number | null>(null);
+
+  const isManualLockedRef = useRef<boolean>(false);
+  useEffect(() => {
+    isManualLockedRef.current = isManualLocked;
+  }, [isManualLocked]);
+
+  const autoDetectEnabledRef = useRef<boolean>(true);
+  useEffect(() => {
+    autoDetectEnabledRef.current = autoDetectEnabled;
+  }, [autoDetectEnabled]);
 
   // Synchronized refs to avoid stale closure across continuous speech events
   const transcriptsRef = useRef<TranscriptItem[]>(activeRecord.transcripts);
@@ -231,19 +263,79 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
     }
   }, [formatTimer, onUpdateTranscripts, filterSpeaker]);
 
-  // Keep speechService callbacks bound to current commitTranscript
+  // Keep speechService callbacks bound to current commitTranscript and dual-track speaker detection
   useEffect(() => {
     if (isRecording) {
       speechService.setCallbacks({
-        onFinalResult: (text) => {
-          commitTranscript(text);
+        onPitchDetected: (pitch) => {
+          latestPitchRef.current = pitch;
+        },
+        onAudioLevel: (level) => {
+          setAudioLevel(level);
         },
         onInterimResult: (text) => {
           setInterimText(text);
+
+          // Concurrent automatic speaker detection:
+          // If human has NOT manually switched (isManualLocked is false) and auto detection is enabled:
+          if (
+            autoDetectEnabledRef.current &&
+            !isManualLockedRef.current &&
+            text.trim().length >= 2
+          ) {
+            const detected = detectSpeaker({
+              currentText: text,
+              activeSpeaker: activeSpeakerRef.current,
+              lastTranscripts: transcriptsRef.current,
+              visitInfo: activeRecord.visitInfo,
+              pitchHz: latestPitchRef.current,
+              isManualLocked: false,
+            });
+
+            if (detected && detected.detectedSpeaker !== activeSpeakerRef.current) {
+              const newSpeaker = detected.detectedSpeaker;
+              setActiveSpeaker(newSpeaker);
+              activeSpeakerRef.current = newSpeaker;
+              setAutoDetectedInfo({
+                speaker: newSpeaker,
+                reason: detected.reason,
+                timestamp: Date.now(),
+              });
+            }
+          }
+        },
+        onFinalResult: (text) => {
+          let targetSpeaker = activeSpeakerRef.current;
+          // If human has NOT manually switched, evaluate final text as well
+          if (
+            autoDetectEnabledRef.current &&
+            !isManualLockedRef.current &&
+            text.trim().length >= 2
+          ) {
+            const detected = detectSpeaker({
+              currentText: text,
+              activeSpeaker: activeSpeakerRef.current,
+              lastTranscripts: transcriptsRef.current,
+              visitInfo: activeRecord.visitInfo,
+              pitchHz: latestPitchRef.current,
+              isManualLocked: false,
+            });
+            if (detected && detected.detectedSpeaker) {
+              targetSpeaker = detected.detectedSpeaker;
+              setActiveSpeaker(targetSpeaker);
+              activeSpeakerRef.current = targetSpeaker;
+              setAutoDetectedInfo({
+                speaker: targetSpeaker,
+                reason: detected.reason,
+                timestamp: Date.now(),
+              });
+            }
+          }
+          commitTranscript(text, targetSpeaker);
         },
       });
     }
-  }, [isRecording, commitTranscript]);
+  }, [isRecording, commitTranscript, activeRecord.visitInfo]);
 
   const handleStartRecording = async () => {
     if (!hasEstablishedTeacher) {
@@ -257,11 +349,64 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
 
     try {
       await speechService.start({
+        onPitchDetected: (pitch) => {
+          latestPitchRef.current = pitch;
+        },
         onInterimResult: (text) => {
           setInterimText(text);
+          if (
+            autoDetectEnabledRef.current &&
+            !isManualLockedRef.current &&
+            text.trim().length >= 2
+          ) {
+            const detected = detectSpeaker({
+              currentText: text,
+              activeSpeaker: activeSpeakerRef.current,
+              lastTranscripts: transcriptsRef.current,
+              visitInfo: activeRecord.visitInfo,
+              pitchHz: latestPitchRef.current,
+              isManualLocked: false,
+            });
+
+            if (detected && detected.detectedSpeaker !== activeSpeakerRef.current) {
+              const newSpeaker = detected.detectedSpeaker;
+              setActiveSpeaker(newSpeaker);
+              activeSpeakerRef.current = newSpeaker;
+              setAutoDetectedInfo({
+                speaker: newSpeaker,
+                reason: detected.reason,
+                timestamp: Date.now(),
+              });
+            }
+          }
         },
         onFinalResult: (text) => {
-          commitTranscript(text);
+          let targetSpeaker = activeSpeakerRef.current;
+          if (
+            autoDetectEnabledRef.current &&
+            !isManualLockedRef.current &&
+            text.trim().length >= 2
+          ) {
+            const detected = detectSpeaker({
+              currentText: text,
+              activeSpeaker: activeSpeakerRef.current,
+              lastTranscripts: transcriptsRef.current,
+              visitInfo: activeRecord.visitInfo,
+              pitchHz: latestPitchRef.current,
+              isManualLocked: false,
+            });
+            if (detected && detected.detectedSpeaker) {
+              targetSpeaker = detected.detectedSpeaker;
+              setActiveSpeaker(targetSpeaker);
+              activeSpeakerRef.current = targetSpeaker;
+              setAutoDetectedInfo({
+                speaker: targetSpeaker,
+                reason: detected.reason,
+                timestamp: Date.now(),
+              });
+            }
+          }
+          commitTranscript(text, targetSpeaker);
         },
         onAudioLevel: (level) => {
           setAudioLevel(level);
@@ -347,7 +492,7 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
     onUpdateTranscripts(updated);
   };
 
-  // Instant speaker switch handler: flushes previous speech immediately, sets new role, and guarantees active recording
+  // Manual speaker switch handler: Human manual switch takes TOP PRIORITY over automatic detection!
   const handleSwitchSpeaker = async (newSpeaker: SpeakerType) => {
     if (!hasEstablishedTeacher) {
       onOpenSetup();
@@ -360,23 +505,36 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
     // 2. Restart recognition session to clear old speaker's buffer
     speechService.restartSession();
 
-    // 3. Set the new speaker immediately
+    // 3. Set Manual Priority: 人工手動切換身分優先處理
+    setIsManualLocked(true);
+    isManualLockedRef.current = true;
+    setManualLockedSpeaker(newSpeaker);
+    setAutoDetectedInfo(null);
+
+    // 4. Set the new speaker immediately
     setActiveSpeaker(newSpeaker);
     activeSpeakerRef.current = newSpeaker;
 
-    // 4. Ensure all dialogue is visible on the screen so new speaker's content is displayed
+    // 5. Ensure all dialogue is visible on the screen so new speaker's content is displayed
     setFilterSpeaker('all');
     setFilterOnlyFlagged(false);
 
-    // 5. Guarantee microphone is recording immediately so speech is captured on the screen right away
+    // 6. Guarantee microphone is recording immediately so speech is captured on the screen right away
     if (!isRecording) {
       await handleStartRecording();
     }
 
-    // 6. Scroll to bottom so the new speaker state is right in front of the teacher
+    // 7. Scroll to bottom so the new speaker state is right in front of the teacher
     requestAnimationFrame(() => {
       transcriptsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     });
+  };
+
+  // Release manual lock: Resume dual-track automatic speaker detection
+  const handleUnlockManual = () => {
+    setIsManualLocked(false);
+    isManualLockedRef.current = false;
+    setManualLockedSpeaker(null);
   };
 
   // Quick Speech Simulator by speaker (for instant testing of any role on screen)
@@ -516,6 +674,35 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  // Download ALL Transcripts as formal Plain Text (.txt) - Guarantees 100% full content
+  const handleDownloadAllTranscriptsTxt = () => {
+    if (!hasEstablishedTeacher) {
+      onOpenSetup();
+      return;
+    }
+    // Flush any pending interim speech so even the last spoken sentence is 100% included
+    if (interimTextRef.current.trim()) {
+      commitTranscript(interimTextRef.current.trim(), activeSpeakerRef.current);
+    }
+    const res = downloadAllTranscriptsAsTxt(activeRecord);
+    setDownloadSuccessMessage(`已成功下載全部 ${res.totalCount} 則逐字稿（完整純文字全本 .txt）`);
+    setTimeout(() => setDownloadSuccessMessage(null), 4000);
+  };
+
+  // Download ALL Transcripts as Excel CSV (.csv with UTF-8 BOM)
+  const handleDownloadAllTranscriptsCsv = () => {
+    if (!hasEstablishedTeacher) {
+      onOpenSetup();
+      return;
+    }
+    if (interimTextRef.current.trim()) {
+      commitTranscript(interimTextRef.current.trim(), activeSpeakerRef.current);
+    }
+    const res = downloadAllTranscriptsAsCsv(activeRecord);
+    setDownloadSuccessMessage(`已成功下載全部 ${res.totalCount} 則逐字稿（Excel 表格檔 .csv）`);
+    setTimeout(() => setDownloadSuccessMessage(null), 4000);
   };
 
   const filteredTranscripts = activeRecord.transcripts.filter((t) => {
@@ -729,19 +916,94 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
               </div>
             )}
 
-            {/* Active Speaker Switcher (Crucial for home visit roles) */}
-            <div className="space-y-2 pt-2 border-t border-slate-100">
+            {/* Dual-Track Speaker Management: Manual Priority + Automatic Diarization Sync */}
+            <div className="space-y-3 pt-3 border-t border-slate-100">
               <div className="flex items-center justify-between">
-                <label className="block text-xs font-semibold text-slate-700">
-                  切換發言身分（即刻顯示錄音）：
+                <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-blue-600" />
+                  <span>發言身分管理（手動切換優先 ＋ 自動同步辨識）</span>
                 </label>
-                {!hasEstablishedTeacher && (
+                {!hasEstablishedTeacher ? (
                   <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded font-medium flex items-center gap-0.5">
                     <Lock className="w-2.5 h-2.5" />
                     未建立選單
                   </span>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    {isManualLocked ? (
+                      <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <User className="w-2.5 h-2.5 text-amber-600" />
+                        人工手動優先
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Zap className="w-2.5 h-2.5 text-emerald-600" />
+                        雙軌同步中
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
+
+              {/* Status explanation badge */}
+              {hasEstablishedTeacher && (
+                <div className={`p-2.5 rounded-lg border text-xs leading-relaxed space-y-1 ${
+                  isManualLocked
+                    ? 'bg-amber-50/90 border-amber-200 text-amber-950'
+                    : 'bg-blue-50/80 border-blue-200 text-blue-950'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold flex items-center gap-1">
+                      {isManualLocked ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>手動切換身分優先：目前鎖定為【{activeSpeaker}】</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span>雙軌同步中：目前身分【{activeSpeaker}】</span>
+                        </>
+                      )}
+                    </span>
+                    {isManualLocked && (
+                      <button
+                        type="button"
+                        onClick={handleUnlockManual}
+                        className="text-[11px] font-medium text-amber-800 hover:text-amber-950 underline flex items-center gap-0.5 cursor-pointer"
+                        title="解除手動鎖定，讓系統在偵測換人時自動切換身分"
+                      >
+                        <Unlock className="w-2.5 h-2.5" />
+                        <span>恢復自動換人</span>
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] opacity-90">
+                    {isManualLocked
+                      ? '依規範已採用「人工手動切換身分優先處理」。若需系統再次自動偵測換人，可點選上方「恢復自動換人」。'
+                      : '人工手動切換優先處理；若人工尚未切換，系統偵測換人時將自動切換身分錄音。'}
+                  </p>
+                </div>
+              )}
+
+              {/* Auto detected toast notification */}
+              {autoDetectedInfo && !isManualLocked && (
+                <div className="p-2 bg-emerald-50 border border-emerald-300 rounded-lg text-xs text-emerald-900 flex items-center justify-between animate-fadeIn">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>系統自動換人：已切換為【{autoDetectedInfo.speaker}】（{autoDetectedInfo.reason}）</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setAutoDetectedInfo(null)}
+                    className="text-[10px] text-emerald-700 hover:text-emerald-900 cursor-pointer ml-1"
+                  >
+                    關閉
+                  </button>
+                </div>
+              )}
+
+              {/* Speaker Buttons: clicking gives TOP PRIORITY to manual choice */}
               <div className="grid grid-cols-2 gap-2">
                 {AVAILABLE_SPEAKERS.map((spk) => {
                   const isActive = activeSpeaker === spk.value;
@@ -755,31 +1017,45 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
                         !hasEstablishedTeacher
                           ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
                           : isActive
-                          ? spk.activeColor + ' cursor-pointer'
+                          ? spk.activeColor + ' cursor-pointer ring-2 ring-offset-1'
                           : spk.inactiveClass + ' cursor-pointer'
                       }`}
                       title={
                         !hasEstablishedTeacher
                           ? '尚未建立新家庭訪問選單，切換身分已關閉'
-                          : `切換為「${spk.label}」並立即進行語音收音`
+                          : `以人工手動切換身分為「${spk.label}」（手動優先處理並同步錄音）`
                       }
                     >
                       <span className="flex items-center gap-1.5">
                         <span>{spk.icon}</span>
                         <span>{spk.label}</span>
                       </span>
-                      {isActive && hasEstablishedTeacher && <Check className="w-3.5 h-3.5" />}
+                      {isActive && hasEstablishedTeacher && (
+                        <span className="flex items-center gap-1">
+                          {isManualLocked && (
+                            <span className="text-[9px] bg-white/30 px-1 py-0.2 rounded font-semibold">
+                              手動
+                            </span>
+                          )}
+                          <Check className="w-3.5 h-3.5" />
+                        </span>
+                      )}
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* Quick helper tools */}
+            {/* Quick helper tools & Full Transcript Download */}
             <div className="pt-2 border-t border-slate-100 space-y-2">
-              <span className="block text-xs font-semibold text-slate-700">
-                輔助輸入與備份：
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="block text-xs font-semibold text-slate-700">
+                  輔助輸入與全部逐字稿下載：
+                </span>
+                <span className="text-[10px] text-slate-500 font-medium">
+                  全本完整匯出
+                </span>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -811,6 +1087,52 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
                   />
                 </label>
 
+                {/* Download ALL Transcripts as TXT */}
+                <button
+                  id="btn-download-all-txt"
+                  type="button"
+                  disabled={!hasEstablishedTeacher || activeRecord.transcripts.length === 0}
+                  onClick={handleDownloadAllTranscriptsTxt}
+                  className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                  title={
+                    !hasEstablishedTeacher
+                      ? '尚未建立新家庭訪問選單，下載逐字稿已關閉'
+                      : activeRecord.transcripts.length === 0
+                      ? '目前尚無逐字稿可下載'
+                      : '下載全部逐字稿內容（全本純文字檔 .txt，保證全數包含）'
+                  }
+                >
+                  {!hasEstablishedTeacher ? (
+                    <Lock className="w-3 h-3 text-slate-400" />
+                  ) : (
+                    <FileText className="w-3 h-3 text-blue-600" />
+                  )}
+                  <span>下載全部逐字稿 (.txt)</span>
+                </button>
+
+                {/* Download ALL Transcripts as CSV */}
+                <button
+                  id="btn-download-all-csv"
+                  type="button"
+                  disabled={!hasEstablishedTeacher || activeRecord.transcripts.length === 0}
+                  onClick={handleDownloadAllTranscriptsCsv}
+                  className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-700 rounded-md border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                  title={
+                    !hasEstablishedTeacher
+                      ? '尚未建立新家庭訪問選單，下載逐字稿已關閉'
+                      : activeRecord.transcripts.length === 0
+                      ? '目前尚無逐字稿可下載'
+                      : '下載全部逐字稿 Excel 表格檔 (.csv，含完整對話及時間戳記)'
+                  }
+                >
+                  {!hasEstablishedTeacher ? (
+                    <Lock className="w-3 h-3 text-slate-400" />
+                  ) : (
+                    <Download className="w-3 h-3 text-emerald-600" />
+                  )}
+                  <span>逐字稿表格 (.csv)</span>
+                </button>
+
                 <button
                   type="button"
                   disabled={!hasEstablishedTeacher || activeRecord.transcripts.length === 0}
@@ -824,7 +1146,7 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
                       : '下載本次訪談錄製之音訊檔 (WebM 格式)'
                   }
                 >
-                  <Download className="w-3 h-3 text-emerald-600" />
+                  <Download className="w-3 h-3 text-purple-600" />
                   <span>下載錄音備份</span>
                 </button>
               </div>
@@ -854,8 +1176,35 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
               </h3>
             </div>
 
-            {/* Filter pills */}
-            <div className="flex items-center space-x-2 text-xs">
+            {/* Full Transcript Download Buttons & Filter Controls */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {/* Prominent Full Transcript Download Controls */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  id="btn-header-download-txt"
+                  disabled={!hasEstablishedTeacher || activeRecord.transcripts.length === 0}
+                  onClick={handleDownloadAllTranscriptsTxt}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed border border-slate-300 rounded-md text-xs font-medium text-slate-700 flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                  title="下載全部逐字稿內容（全本純文字 .txt，保證全數包含不受篩選影響）"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-600" />
+                  <span>下載全部逐字稿 (.txt)</span>
+                </button>
+                <button
+                  type="button"
+                  id="btn-header-download-csv"
+                  disabled={!hasEstablishedTeacher || activeRecord.transcripts.length === 0}
+                  onClick={handleDownloadAllTranscriptsCsv}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed border border-slate-300 rounded-md text-xs font-medium text-slate-700 flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                  title="下載全部逐字稿表格檔 (.csv，含所有發言角色與時間戳記)"
+                >
+                  <Table className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>表格 (.csv)</span>
+                </button>
+              </div>
+
+              {/* Filter pills */}
               <select
                 value={filterSpeaker}
                 onChange={(e) => setFilterSpeaker(e.target.value)}
@@ -898,6 +1247,23 @@ export const LiveRecorder: React.FC<LiveRecorderProps> = ({
               )}
             </div>
           </div>
+
+          {/* Download Success Notice Banner */}
+          {downloadSuccessMessage && (
+            <div className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-300 text-xs font-medium text-emerald-900 flex items-center justify-between animate-fadeIn">
+              <span className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{downloadSuccessMessage}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setDownloadSuccessMessage(null)}
+                className="text-emerald-700 hover:text-emerald-950 text-xs underline cursor-pointer"
+              >
+                知道了
+              </button>
+            </div>
+          )}
 
           {/* Filter Notice Banner if any filter is active */}
           {(filterSpeaker !== 'all' || filterOnlyFlagged) && (

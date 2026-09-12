@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { VisitRecord, CurrentUser } from '../types';
 import { exportVisitRecordToDocx } from '../services/docxExportService';
+import { downloadAllTranscriptsAsTxt, downloadAllTranscriptsAsCsv } from '../services/transcriptExportService';
 import { SchoolLogo } from './SchoolLogo';
 
 interface DocumentPreviewProps {
@@ -204,19 +205,14 @@ ${(summary?.crossOfficeReferrals || []).join('、 ') || '無'}
     setTimeout(() => setCopiedText(false), 2500);
   };
 
-  // Download Transcript TXT
+  // Download Full Transcript TXT (guarantees 100% full content)
   const handleDownloadTranscriptTxt = () => {
-    const content = transcripts
-      .map((t) => `[${t.timestamp}] ${t.speaker}: ${t.text}${t.isFlagged ? ' (★' + (t.flagCategory || '重點') + ')' : ''}`)
-      .join('\n');
+    downloadAllTranscriptsAsTxt(activeRecord);
+  };
 
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${visitInfo.className}_${visitInfo.studentName}_家庭訪問逐字稿_${visitInfo.visitDate}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Download Full Transcript CSV (Excel format)
+  const handleDownloadTranscriptCsv = () => {
+    downloadAllTranscriptsAsCsv(activeRecord);
   };
 
   return (
@@ -343,7 +339,7 @@ ${(summary?.crossOfficeReferrals || []).join('、 ') || '無'}
             )}
           </button>
 
-          {/* Download TXT */}
+          {/* Download Full Transcript TXT */}
           <button
             id="btn-download-txt"
             onClick={canDownload ? handleDownloadTranscriptTxt : triggerPermissionWarning}
@@ -352,10 +348,25 @@ ${(summary?.crossOfficeReferrals || []).join('、 ') || '無'}
                 ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
                 : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
             }`}
-            title={canDownload ? '下載完整對話逐字稿純文字檔' : `資安管制：僅限本次家訪導師（${visitingTeacher}）可下載逐字稿`}
+            title={canDownload ? '下載全部訪談對話逐字稿（完整純文字檔，絕無遺漏）' : `資安管制：僅限本次家訪導師（${visitingTeacher}）可下載逐字稿`}
           >
             {!canDownload ? <Lock className="w-3.5 h-3.5 text-slate-400" /> : <FileText className="w-3.5 h-3.5" />}
-            <span>下載逐字稿 (.txt)</span>
+            <span>下載全部逐字稿 (.txt)</span>
+          </button>
+
+          {/* Download Full Transcript CSV */}
+          <button
+            id="btn-download-csv"
+            onClick={canDownload ? handleDownloadTranscriptCsv : triggerPermissionWarning}
+            className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5 ${
+              canDownload
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+            }`}
+            title={canDownload ? '下載全部逐字稿 Excel 表格檔 (.csv，含時間戳記與發言角色)' : `資安管制：僅限本次家訪導師（${visitingTeacher}）可下載逐字稿`}
+          >
+            {!canDownload ? <Lock className="w-3.5 h-3.5 text-slate-400" /> : <Download className="w-3.5 h-3.5 text-emerald-600" />}
+            <span>逐字稿表格 (.csv)</span>
           </button>
 
           {/* Print / Save PDF */}

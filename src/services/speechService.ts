@@ -4,6 +4,7 @@ export interface SpeechRecognitionCallbacks {
   onError?: (error: string) => void;
   onStatusChange?: (isListening: boolean) => void;
   onAudioLevel?: (level: number) => void;
+  onPitchDetected?: (pitchHz: number) => void;
 }
 
 export class SpeechService {
@@ -367,29 +368,48 @@ export class SpeechService {
           },
         });
 
-        // Initialize AudioContext for Volume Meter
+        // Initialize AudioContext for Volume Meter and Pitch Estimation
         this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         this.analyser = this.audioContext.createAnalyser();
-        this.analyser.fftSize = 64;
+        this.analyser.fftSize = 512;
 
         const source = this.audioContext.createMediaStreamSource(this.mediaStream);
         source.connect(this.analyser);
 
         const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+        const sampleRate = this.audioContext.sampleRate || 44100;
+        let frameCount = 0;
 
         const updateLevel = () => {
           if (!this.shouldKeepListening || !this.analyser) return;
           this.analyser.getByteFrequencyData(dataArray);
 
           let sum = 0;
+          let maxVal = 0;
+          let maxIndex = 0;
           for (let i = 0; i < dataArray.length; i++) {
-            sum += dataArray[i];
+            const val = dataArray[i];
+            sum += val;
+            if (val > maxVal) {
+              maxVal = val;
+              maxIndex = i;
+            }
           }
           const average = sum / dataArray.length;
           const normalizedLevel = Math.min(100, Math.round((average / 128) * 100));
 
           if (this.callbacks.onAudioLevel) {
             this.callbacks.onAudioLevel(normalizedLevel);
+          }
+
+          // Pitch estimation every 10 frames if active voice
+          frameCount++;
+          if (frameCount % 10 === 0 && normalizedLevel > 18 && maxVal > 60) {
+            const binWidth = sampleRate / 512;
+            const estimatedHz = maxIndex * binWidth;
+            if (estimatedHz >= 75 && estimatedHz <= 450 && this.callbacks.onPitchDetected) {
+              this.callbacks.onPitchDetected(estimatedHz);
+            }
           }
 
           this.animationFrameId = requestAnimationFrame(updateLevel);

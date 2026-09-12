@@ -546,9 +546,10 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
               <label className="block text-xs font-medium text-slate-700 mb-1">學生姓名</label>
               <input
                 type="text"
+                id="input-student-name"
                 value={formData.studentName}
                 onChange={(e) => handleChange('studentName', e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none placeholder:text-slate-400 placeholder:opacity-80"
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none placeholder:text-slate-400 placeholder:italic"
                 placeholder="王小明"
               />
             </div>
@@ -556,9 +557,10 @@ export const VisitSetupModal: React.FC<VisitSetupModalProps> = ({
               <label className="block text-xs font-medium text-slate-700 mb-1">座號 / 學號</label>
               <input
                 type="text"
+                id="input-student-id"
                 value={formData.studentId}
                 onChange={(e) => handleChange('studentId', e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none placeholder:text-slate-400 placeholder:opacity-80"
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none placeholder:text-slate-400 placeholder:italic"
                 placeholder="15號/810001"
               />
             </div>
